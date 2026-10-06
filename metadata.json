@@ -1,0 +1,9 @@
+{
+  "uuid": "deepseek-peak@arjan",
+  "name": "DeepSeek Peak Pricing",
+  "description": "Shows DeepSeek API peak and off-peak pricing.",
+  "version": 1,
+  "shell-version": [
+    "50"
+  ]
+}
