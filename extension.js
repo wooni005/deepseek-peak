@@ -1,5 +1,7 @@
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Soup from 'gi://Soup';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -31,10 +33,25 @@ const CHINESE_HOLIDAYS = [
     {name: 'Nationale feestdag', start: '2026-10-01', end: '2026-10-07'},
 ];
 
+const HOLIDAY_URL = year =>
+    `https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/${year}.json`;
+
+const CACHE_PATH = GLib.build_filenamev([
+    GLib.get_user_data_dir(),
+    'deepseek-peak',
+    'holidays.json',
+]);
+
 const DeepSeekIndicator = GObject.registerClass(
 class DeepSeekIndicator extends PanelMenu.Button {
     _init() {
         super._init(0.0, 'DeepSeek Peak Pricing');
+
+        this._holidays = [...CHINESE_HOLIDAYS];
+        this._notifiedStale = false;
+        this._fetching = false;
+
+        this._loadCachedHolidays();
 
         this._label = new St.Label({
             text: '⚡ ...',
@@ -60,12 +77,20 @@ class DeepSeekIndicator extends PanelMenu.Button {
 
         const holiday = this._holidayName(now);
         const peak = this._isPeak(now);
+        const stale = this._isStale(now);
 
         this._label.text = peak
             ? '⚡ PEAK'
             : '⚡ OFF-PEAK';
 
-        this._updateMenu(now, peak, holiday);
+        if (stale && !this._notifiedStale) {
+            this._notifiedStale = true;
+            this._notify(
+                'Feestdagenlijst is verlopen. Open het menu om bij te werken.'
+            );
+        }
+
+        this._updateMenu(now, peak, holiday, stale);
     }
 
     _isPeak(now) {
@@ -89,14 +114,164 @@ class DeepSeekIndicator extends PanelMenu.Button {
     _holidayName(now) {
         const date = now.toISOString().slice(0, 10);
 
-        const holiday = CHINESE_HOLIDAYS.find(
+        const holiday = this._holidays.find(
             h => date >= h.start && date <= h.end
         );
 
         return holiday ? holiday.name : null;
     }
 
-    _updateMenu(now, peak, holiday) {
+    _lastHolidayEnd() {
+        return this._holidays.reduce(
+            (max, h) => (h.end > max ? h.end : max),
+            ''
+        );
+    }
+
+    _isStale(now) {
+        const last = this._lastHolidayEnd();
+
+        return last !== '' &&
+            now.toISOString().slice(0, 10) > last;
+    }
+
+    _loadCachedHolidays() {
+        const file = Gio.File.new_for_path(CACHE_PATH);
+
+        if (!file.query_exists(null))
+            return;
+
+        try {
+            const [, contents] = file.load_contents(null);
+            const data = JSON.parse(new TextDecoder().decode(contents));
+
+            if (Array.isArray(data.holidays))
+                this._holidays = this._merge(this._holidays, data.holidays);
+        } catch (e) {
+            logError(e, 'deepseek-peak: cache lezen mislukt');
+        }
+    }
+
+    _saveCachedHolidays() {
+        try {
+            const file = Gio.File.new_for_path(CACHE_PATH);
+            const dir = file.get_parent();
+
+            if (!dir.query_exists(null))
+                dir.make_directory_with_parents(null);
+
+            const bytes = new TextEncoder().encode(
+                JSON.stringify({holidays: this._holidays}, null, 2)
+            );
+
+            file.replace_contents(
+                bytes,
+                null,
+                false,
+                Gio.FileCreateFlags.REPLACE_DESTINATION,
+                null
+            );
+        } catch (e) {
+            logError(e, 'deepseek-peak: cache schrijven mislukt');
+        }
+    }
+
+    _merge(base, extra) {
+        const seen = new Set(base.map(h => h.start));
+
+        return [...base, ...extra.filter(h => !seen.has(h.start))];
+    }
+
+    _fetchHolidays() {
+        if (this._fetching)
+            return;
+
+        this._fetching = true;
+
+        const nowYear = new Date().getUTCFullYear();
+        const lastYear = Number(this._lastHolidayEnd().slice(0, 4)) || nowYear;
+
+        const years = [];
+        for (let year = lastYear; year <= nowYear + 1; year++)
+            years.push(year);
+
+        const session = new Soup.Session();
+        this._session = session;
+
+        const found = [];
+        let pending = years.length;
+        let failed = false;
+
+        years.forEach(year => {
+            const message = Soup.Message.new('GET', HOLIDAY_URL(year));
+
+            session.send_and_read_async(
+                message,
+                GLib.PRIORITY_DEFAULT,
+                null,
+                (sess, result) => {
+                    try {
+                        const bytes = sess.send_and_read_finish(result);
+                        const text = new TextDecoder().decode(bytes.get_data());
+
+                        found.push(...this._parseYear(JSON.parse(text)));
+                    } catch (e) {
+                        failed = true;
+                        logError(e, `deepseek-peak: ${year} ophalen mislukt`);
+                    }
+
+                    if (--pending === 0)
+                        this._onFetched(found, failed);
+                }
+            );
+        });
+    }
+
+    _parseYear(data) {
+        const days = Array.isArray(data?.days) ? data.days : [];
+
+        return days
+            .filter(day => day.isOffDay)
+            .map(day => ({
+                name: day.name,
+                start: day.date,
+                end: day.date,
+            }));
+    }
+
+    _onFetched(found, failed) {
+        this._fetching = false;
+        this._session = null;
+
+        if (found.length > 0) {
+            this._holidays = this._merge(this._holidays, found);
+            this._saveCachedHolidays();
+        }
+
+        if (this._isStale(new Date())) {
+            this._notifiedStale = true;
+            this._notify(
+                failed
+                    ? 'Feestdagen ophalen mislukt.'
+                    : 'Nog geen nieuwe feestdagen beschikbaar.'
+            );
+        } else {
+            this._notifiedStale = false;
+            this._notify(`Feestdagen bijgewerkt (${found.length} dagen).`);
+        }
+
+        this._update();
+    }
+
+    _notify(body) {
+        try {
+            Main.notify('DeepSeek Peak Pricing', body);
+        } catch (e) {
+            logError(e, 'deepseek-peak: melding tonen mislukt');
+        }
+    }
+
+    _updateMenu(now, peak, holiday, stale) {
         this.menu.removeAll();
 
         const status = new PopupMenu.PopupMenuItem(
@@ -115,6 +290,22 @@ class DeepSeekIndicator extends PanelMenu.Button {
                     {reactive: false}
                 )
             );
+        }
+
+        if (stale) {
+            this.menu.addMenuItem(
+                new PopupMenu.PopupMenuItem(
+                    '⚠️ Feestdagenlijst mogelijk verouderd',
+                    {reactive: false}
+                )
+            );
+
+            const refresh = new PopupMenu.PopupMenuItem(
+                'Feestdagen bijwerken'
+            );
+
+            refresh.connect('activate', () => this._fetchHolidays());
+            this.menu.addMenuItem(refresh);
         }
 
         this.menu.addMenuItem(
