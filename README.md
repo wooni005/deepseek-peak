@@ -48,6 +48,7 @@ The UTC times are converted to the computer's local time in the menu.
 deepseek-peak/
 ├── extension.js          # GNOME Shell UI: panel, popup, timer, notifications, cache and HTTP I/O
 ├── pricing.js            # Pure pricing/holiday logic (no GNOME imports)
+├── gio-async.js          # Asynchronous Gio file helpers (Promises)
 ├── metadata.json         # Extension metadata (UUID, shell version)
 ├── stylesheet.css        # Styling
 ├── README.md
@@ -97,13 +98,27 @@ This builds `dist/<uuid>.shell-extension.zip`, ready to upload to
 [extensions.gnome.org](https://extensions.gnome.org). The archive contains the
 extension files at the **top level** (no containing folder), which is what the
 site expects, and includes only the runtime files (`extension.js`,
-`pricing.js`, `metadata.json`, `stylesheet.css`); the tests, scripts and README
-are left out.
+`pricing.js`, `gio-async.js`, `metadata.json`, `stylesheet.css`); the tests,
+scripts and README are left out.
 
-The script reads the UUID and version from `metadata.json`, and uses
-`gnome-extensions pack` when available (falling back to `zip`). It verifies
-afterwards that `metadata.json`, `extension.js` and `pricing.js` are present at
-the archive root. The `dist/` directory is a build artifact and is git-ignored.
+The script reads the UUID and version from `metadata.json`, uses
+`gnome-extensions pack` when available (falling back to `zip`), and verifies
+that `metadata.json`, `extension.js`, `pricing.js` and `gio-async.js` are
+present at the archive root. The `dist/` directory is a build artifact and is
+git-ignored.
+
+### Package check with `shexli`
+
+extensions.gnome.org runs `shexli` (a static analyzer for extension reviews) on
+uploaded extensions. Run it on the **generated zip**, not on the repository
+directory, or it will also scan `.git/`, `tests/` and `scripts/`:
+
+```bash
+shexli dist/deepseek-peak@wooni005.github.com.shell-extension.zip
+```
+
+`./scripts/package.sh` runs this check automatically when `shexli` is installed
+(install it with `pipx install shexli` or `pip install shexli`).
 
 Upload flow: sign in on extensions.gnome.org, click **Upload Extension**, and
 select the generated zip.
@@ -162,6 +177,8 @@ dates in this example (and in the menu) will be abbreviated in that language.
 - **`extension.js`** renders the model from `buildMenuModel()` into real
   `PopupMenu` items and handles the GNOME UI, timer, notifications, cache and
   HTTP.
+- **`gio-async.js`** provides Promise wrappers around the asynchronous Gio file
+  APIs used for the cache (so no synchronous file IO runs in the shell).
 - **`scripts/status.js`** prints the same model to the console.
 
 This avoids duplicated logic: a change in the presentation or calculation

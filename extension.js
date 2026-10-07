@@ -20,6 +20,12 @@ import {
     parseCalendar,
 } from './pricing.js';
 
+import {
+    ensureDirectoryAsync,
+    readFileBytesAsync,
+    writeFileBytesAsync,
+} from './gio-async.js';
+
 const CACHE_PATH = GLib.build_filenamev([
     GLib.get_user_data_dir(),
     'deepseek-peak',
@@ -35,6 +41,7 @@ class DeepSeekIndicator extends PanelMenu.Button {
         this._workdays = [];
         this._notifiedStale = false;
         this._fetching = false;
+        this._destroyed = false;
 
         this._loadCachedHolidays();
 
@@ -73,14 +80,25 @@ class DeepSeekIndicator extends PanelMenu.Button {
         this._renderMenu(model);
     }
 
-    _loadCachedHolidays() {
+    async _loadCachedHolidays() {
         const file = Gio.File.new_for_path(CACHE_PATH);
+        let contents;
 
-        if (!file.query_exists(null))
+        try {
+            contents = await readFileBytesAsync(file);
+        } catch (e) {
+            // A missing cache file is expected on the first run.
+            if (!(e instanceof GLib.Error &&
+                    e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)))
+                logError(e, 'deepseek-peak: failed to read cache');
+
+            return;
+        }
+
+        if (this._destroyed)
             return;
 
         try {
-            const [, contents] = file.load_contents(null);
             const data = JSON.parse(new TextDecoder().decode(contents));
 
             if (Array.isArray(data.holidays))
@@ -88,33 +106,25 @@ class DeepSeekIndicator extends PanelMenu.Button {
 
             if (Array.isArray(data.workdays))
                 this._workdays = mergeWorkdays(this._workdays, data.workdays);
+
+            this._update();
         } catch (e) {
-            logError(e, 'deepseek-peak: failed to read cache');
+            logError(e, 'deepseek-peak: failed to parse cache');
         }
     }
 
-    _saveCachedHolidays() {
+    async _saveCachedHolidays() {
+        const file = Gio.File.new_for_path(CACHE_PATH);
+        const bytes = new TextEncoder().encode(
+            JSON.stringify({
+                holidays: this._holidays,
+                workdays: this._workdays,
+            }, null, 2)
+        );
+
         try {
-            const file = Gio.File.new_for_path(CACHE_PATH);
-            const dir = file.get_parent();
-
-            if (!dir.query_exists(null))
-                dir.make_directory_with_parents(null);
-
-            const bytes = new TextEncoder().encode(
-                JSON.stringify({
-                    holidays: this._holidays,
-                    workdays: this._workdays,
-                }, null, 2)
-            );
-
-            file.replace_contents(
-                bytes,
-                null,
-                false,
-                Gio.FileCreateFlags.REPLACE_DESTINATION,
-                null
-            );
+            await ensureDirectoryAsync(file.get_parent());
+            await writeFileBytesAsync(file, bytes);
         } catch (e) {
             logError(e, 'deepseek-peak: failed to write cache');
         }
@@ -223,6 +233,8 @@ class DeepSeekIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        this._destroyed = true;
+
         if (this._timerId) {
             GLib.Source.remove(this._timerId);
             this._timerId = null;
