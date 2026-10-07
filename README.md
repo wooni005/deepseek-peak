@@ -6,14 +6,14 @@ holiday calendar live in a separate, GNOME-independent module (`pricing.js`),
 so the business logic can be tested with plain Node.js without restarting the
 shell.
 
-- **Extension UUID:** `deepseek-peak@arjan`
+- **Extension UUID:** `deepseek-peak@wooni005.github.com`
 - **GNOME Shell:** 50
 - **Development tools:** Node.js (for the tests and the status script)
 
 ## Features
 
-- Panel indicator showing the current status (`Peak pricing` /
-  `Off-peak pricing`).
+- Panel indicator with a status dot and the time of the next price transition
+  (e.g. `🔴 06:00`, or `🟢 Thu 01:00` when the transition is on another day).
 - Popup menu with:
   - the current status;
   - the peak windows (local, only on (compensatory) workdays);
@@ -54,7 +54,8 @@ deepseek-peak/
 ├── tests/
 │   └── pricing-test.js   # Node.js tests for pricing.js
 └── scripts/
-    ├── deploy.sh         # Copies the extension to ~/.local/share/gnome-shell/extensions
+    ├── deploy.sh         # Local install: copies the extension into ~/.local/share/gnome-shell/extensions
+    ├── package.sh        # Builds an upload-ready zip for extensions.gnome.org in dist/
     └── status.js         # Dev CLI: prints the current popup contents without restarting the shell
 ```
 
@@ -70,8 +71,8 @@ come from `pricing.js`. There are **no** GNOME imports
 
 The script temporarily disables the extension, copies `extension.js`,
 `pricing.js`, `metadata.json` and `stylesheet.css` to
-`~/.local/share/gnome-shell/extensions/deepseek-peak@arjan/`, and then enables
-the extension again.
+`~/.local/share/gnome-shell/extensions/<uuid>/` (the UUID is read from
+`metadata.json`), and then enables the extension again.
 
 After the first install (or after changing code in `extension.js`), GNOME Shell
 must be reloaded:
@@ -82,9 +83,30 @@ must be reloaded:
 Then enable it if needed:
 
 ```bash
-gnome-extensions enable deepseek-peak@arjan
-gnome-extensions info deepseek-peak@arjan
+gnome-extensions enable deepseek-peak@wooni005.github.com
+gnome-extensions info deepseek-peak@wooni005.github.com
 ```
+
+## Packaging for extensions.gnome.org
+
+```bash
+./scripts/package.sh
+```
+
+This builds `dist/<uuid>.shell-extension.zip`, ready to upload to
+[extensions.gnome.org](https://extensions.gnome.org). The archive contains the
+extension files at the **top level** (no containing folder), which is what the
+site expects, and includes only the runtime files (`extension.js`,
+`pricing.js`, `metadata.json`, `stylesheet.css`); the tests, scripts and README
+are left out.
+
+The script reads the UUID and version from `metadata.json`, and uses
+`gnome-extensions pack` when available (falling back to `zip`). It verifies
+afterwards that `metadata.json`, `extension.js` and `pricing.js` are present at
+the archive root. The `dist/` directory is a build artifact and is git-ignored.
+
+Upload flow: sign in on extensions.gnome.org, click **Upload Extension**, and
+select the generated zip.
 
 ## Development
 
@@ -119,7 +141,7 @@ holidays and compensatory workdays. Without a cache, the seed table in
 Example output:
 
 ```text
-Panel: 🟢 Off-peak pricing
+Panel: 🟢 Thu 03:00
 Moment: 2026-10-07T07:31:26.509Z
 
 Popup menu:

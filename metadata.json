@@ -1,7 +1,7 @@
 {
-  "uuid": "deepseek-peak@arjan",
-  "name": "DeepSeek Peak Pricing",
-  "description": "Shows DeepSeek API peak and off-peak pricing.",
+  "uuid": "deepseek-peak@wooni005.github.com",
+  "name": "DeepSeek Peak",
+  "description": "Shows DeepSeek API peak and off-peak pricing, taking working days and Chinese holidays into account.",
   "version": 1,
   "shell-version": [
     "50"

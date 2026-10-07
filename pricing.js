@@ -228,9 +228,23 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
     const stale = isStale(now, holidays);
     const next = nextTransition(now, holidays, workdays);
 
-    const panelLabel = peak
-        ? '🔴 Peak pricing'
-        : '🟢 Off-peak pricing';
+    // Panel shows a status dot plus the time of the next price transition,
+    // e.g. "🔴 06:00" (peak now, off-peak at 06:00) or "🟢 do 01:00".
+    let panelLabel = peak ? '🔴' : '🟢';
+
+    if (next) {
+        const time = next.toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        const sameDay =
+            localDateKey(next, undefined) === localDateKey(now, undefined);
+        const weekday = sameDay
+            ? ''
+            : `${next.toLocaleDateString([], {weekday: 'short'})} `;
+
+        panelLabel = `${panelLabel} ${weekday}${time}`;
+    }
 
     const windows = PEAK_PERIODS.map(
         p => `${formatLocalHour(p.start, now)}–${formatLocalHour(p.end, now)}`
