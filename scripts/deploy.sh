@@ -7,9 +7,9 @@ INSTALL_DIR="$HOME/.local/share/gnome-shell/extensions/$EXTENSION_UUID"
 
 echo "Deploying $EXTENSION_UUID..."
 
-# Disable first if currently enabled
+# Disable first if currently enabled (match both Dutch and English CLI output)
 if gnome-extensions info "$EXTENSION_UUID" 2>/dev/null |
-    grep -q "Ingeschakeld: Ja"; then
+    grep -qE "Ingeschakeld: Ja|Enabled: Yes"; then
     echo "Disabling extension..."
     gnome-extensions disable "$EXTENSION_UUID"
 fi

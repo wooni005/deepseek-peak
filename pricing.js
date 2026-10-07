@@ -10,23 +10,23 @@ export const PEAK_PERIODS = [
     {start: 6, end: 10},
 ];
 
-// Officiele Chinese publieke feestdagen (Staatsraad, dagen vrij), als UTC-datums.
-// Bron: https://github.com/NateScarlet/holiday-cn (gebaseerd op gov.cn).
-// Werk dit jaarlijks bij zodra de kalender van het volgende jaar verschijnt.
+// Official Chinese public holidays (State Council, days off), as UTC dates.
+// Source: https://github.com/NateScarlet/holiday-cn (based on gov.cn).
+// Update this yearly as soon as the calendar for the next year is published.
 export const CHINESE_HOLIDAYS = [
-    {name: 'Nieuwjaar', start: '2025-01-01', end: '2025-01-01'},
-    {name: 'Lentefestival', start: '2025-01-28', end: '2025-02-04'},
+    {name: 'New Year', start: '2025-01-01', end: '2025-01-01'},
+    {name: 'Spring Festival', start: '2025-01-28', end: '2025-02-04'},
     {name: 'Qingming', start: '2025-04-04', end: '2025-04-06'},
-    {name: 'Arbeid', start: '2025-05-01', end: '2025-05-05'},
-    {name: 'Drakenboot', start: '2025-05-31', end: '2025-06-02'},
-    {name: 'Nationale feestdag + Midherfst', start: '2025-10-01', end: '2025-10-08'},
-    {name: 'Nieuwjaar', start: '2026-01-01', end: '2026-01-03'},
-    {name: 'Lentefestival', start: '2026-02-15', end: '2026-02-23'},
+    {name: 'Labour Day', start: '2025-05-01', end: '2025-05-05'},
+    {name: 'Dragon Boat', start: '2025-05-31', end: '2025-06-02'},
+    {name: 'National Day + Mid-Autumn', start: '2025-10-01', end: '2025-10-08'},
+    {name: 'New Year', start: '2026-01-01', end: '2026-01-03'},
+    {name: 'Spring Festival', start: '2026-02-15', end: '2026-02-23'},
     {name: 'Qingming', start: '2026-04-04', end: '2026-04-06'},
-    {name: 'Arbeid', start: '2026-05-01', end: '2026-05-05'},
-    {name: 'Drakenboot', start: '2026-06-19', end: '2026-06-21'},
-    {name: 'Midherfst', start: '2026-09-25', end: '2026-09-27'},
-    {name: 'Nationale feestdag', start: '2026-10-01', end: '2026-10-07'},
+    {name: 'Labour Day', start: '2026-05-01', end: '2026-05-05'},
+    {name: 'Dragon Boat', start: '2026-06-19', end: '2026-06-21'},
+    {name: 'Mid-Autumn', start: '2026-09-25', end: '2026-09-27'},
+    {name: 'National Day', start: '2026-10-01', end: '2026-10-07'},
 ];
 
 export function holidayUrl(year) {
@@ -56,7 +56,7 @@ export function findWorkday(now, workdays = []) {
 export function isWorkday(now, workdays = []) {
     const day = now.getUTCDay();
 
-    // Ma-vr, of een Chinese compensatiewerkdag (调休) in het weekend.
+    // Mon-Fri, or a Chinese compensatory workday in the weekend.
     return (day >= 1 && day <= 5) || findWorkday(now, workdays) !== null;
 }
 
@@ -171,9 +171,9 @@ export function mergeWorkdays(base, extra) {
     return [...base, ...extra.filter(w => !seen.has(w.date))];
 }
 
-// Parseert een holiday-cn jaarbestand. Levert zowel de vrije dagen
-// (isOffDay true) als de Chinese compensatiewerkdagen (isOffDay false,
-// bijvoorbeeld een weekenddag die werkdag wordt) op.
+// Parses a holiday-cn yearly file. Returns both the days off (isOffDay true)
+// and the Chinese compensatory workdays (isOffDay false, e.g. a weekend day
+// that becomes a workday).
 export function parseCalendar(data) {
     const days = Array.isArray(data?.days) ? data.days : [];
 
@@ -195,9 +195,9 @@ export function parseCalendar(data) {
     return {holidays, workdays};
 }
 
-// Bepaalt in een keer de huidige status: peak/off-peak, de actieve feestdag,
-// een eventuele compensatiewerkdag, of de feestdagenlijst verouderd is en
-// wanneer de volgende tariefwisseling is.
+// Determines the full current status in one call: peak/off-peak, the active
+// holiday, a possible compensatory workday, whether the holiday list is stale,
+// and when the next price transition is.
 export function getStatus(now = new Date(), holidays = CHINESE_HOLIDAYS, workdays = []) {
     const holiday = findHoliday(now, holidays);
     const workday = findWorkday(now, workdays);
@@ -213,20 +213,24 @@ export function getStatus(now = new Date(), holidays = CHINESE_HOLIDAYS, workday
     };
 }
 
-// Bouwt het volledige popup-menu als een puur datamodel. Dit is de enige bron
-// voor de menu-inhoud: extension.js rendert het naar PopupMenu-items en
-// scripts/status.js print exact dezelfde regels.
+// Builds the full popup menu as a plain data model. This is the single source
+// for the menu contents: extension.js renders it into PopupMenu items and
+// scripts/status.js prints exactly the same lines.
 //
-// Elke entry is:
-//   {kind: 'item', text}                -> niet-interactief tekstitem
-//   {kind: 'action', action, text}      -> actie (bv. 'refresh')
-//   {kind: 'separator'}                 -> scheidingslijn
+// Each entry is:
+//   {kind: 'item', text}                -> non-interactive text item
+//   {kind: 'action', action, text}      -> action (e.g. 'refresh')
+//   {kind: 'separator'}                 -> separator line
 export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, workdays = []) {
     const peak = isPeak(now, holidays, workdays);
     const holiday = findHoliday(now, holidays);
     const workday = findWorkday(now, workdays);
     const stale = isStale(now, holidays);
     const next = nextTransition(now, holidays, workdays);
+
+    const panelLabel = peak
+        ? '🔴 Peak pricing'
+        : '🟢 Off-peak pricing';
 
     const windows = PEAK_PERIODS.map(
         p => `${formatLocalHour(p.start, now)}–${formatLocalHour(p.end, now)}`
@@ -236,16 +240,16 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
         {
             kind: 'item',
             text: peak
-                ? '🔴 DeepSeek API: piektarief'
-                : '🟢 DeepSeek API: daltarief',
+                ? '🔴 DeepSeek API: peak pricing'
+                : '🟢 DeepSeek API: off-peak pricing',
         },
     ];
 
-    // Het piekuren-blok is alleen relevant op een echte (compensatie)werkdag.
+    // The peak-hours block is only relevant on a real (compensatory) workday.
     if (!holiday && isWorkday(now, workdays)) {
         items.push({
             kind: 'item',
-            text: '🔴 Piektarief · Chinese werkdagen',
+            text: '🔴 Peak pricing · Chinese workdays',
         });
         items.push({
             kind: 'item',
@@ -256,24 +260,24 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
     if (holiday) {
         items.push({
             kind: 'item',
-            text: `🎉 Chinese feestdag: ${holiday.name} · Vandaag geen piektarief`,
+            text: `🎉 Chinese holiday: ${holiday.name} · No peak pricing today`,
         });
     } else if (workday) {
         items.push({
             kind: 'item',
-            text: '🇨🇳 Compensatiewerkdag · Vandaag gelden de normale piekuren',
+            text: '🇨🇳 Compensatory workday · Normal peak windows apply today',
         });
     }
 
     if (!next) {
         items.push({
             kind: 'item',
-            text: 'ℹ️ Geen tariefwissel in de komende 14 dagen',
+            text: 'ℹ️ No price change in the next 14 days',
         });
     } else if (peak) {
         items.push({
             kind: 'item',
-            text: `🟢 Daltarief vanaf ${formatWhen(next, now)}`,
+            text: `🟢 Off-peak from ${formatWhen(next, now)}`,
         });
     } else {
         const period = PEAK_PERIODS.find(p => p.start === next.getUTCHours());
@@ -281,31 +285,31 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
         items.push({
             kind: 'item',
             text: period
-                ? `🔴 Volgende piek ${formatWhen(next, now)}–${formatLocalHour(period.end, next)}`
-                : `🔴 Volgende piek ${formatWhen(next, now)}`,
+                ? `🔴 Next peak ${formatWhen(next, now)}–${formatLocalHour(period.end, next)}`
+                : `🔴 Next peak ${formatWhen(next, now)}`,
         });
     }
 
     if (stale) {
         items.push({
             kind: 'item',
-            text: '⚠️ Feestdagenlijst mogelijk verouderd',
+            text: '⚠️ Holiday list may be out of date',
         });
         items.push({
             kind: 'action',
             action: 'refresh',
-            text: 'Feestdagen bijwerken',
+            text: 'Refresh holidays',
         });
     }
 
     items.push({kind: 'separator'});
     items.push({
         kind: 'item',
-        text: `Lokale tijd: ${now.toLocaleTimeString([], {
+        text: `Local time: ${now.toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
         })}`,
     });
 
-    return {peak, holiday, workday, stale, next, items};
+    return {peak, holiday, workday, stale, next, panelLabel, items};
 }

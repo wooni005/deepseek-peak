@@ -61,14 +61,12 @@ class DeepSeekIndicator extends PanelMenu.Button {
         const now = new Date();
         const model = buildMenuModel(now, this._holidays, this._workdays);
 
-        this._label.text = model.peak
-            ? '🔴 Piektarief'
-            : '🟢 Daltarief';
+        this._label.text = model.panelLabel;
 
         if (model.stale && !this._notifiedStale) {
             this._notifiedStale = true;
             this._notify(
-                'Feestdagenlijst is verlopen. Open het menu om bij te werken.'
+                'Holiday list has expired. Open the menu to refresh.'
             );
         }
 
@@ -91,7 +89,7 @@ class DeepSeekIndicator extends PanelMenu.Button {
             if (Array.isArray(data.workdays))
                 this._workdays = mergeWorkdays(this._workdays, data.workdays);
         } catch (e) {
-            logError(e, 'deepseek-peak: cache lezen mislukt');
+            logError(e, 'deepseek-peak: failed to read cache');
         }
     }
 
@@ -118,7 +116,7 @@ class DeepSeekIndicator extends PanelMenu.Button {
                 null
             );
         } catch (e) {
-            logError(e, 'deepseek-peak: cache schrijven mislukt');
+            logError(e, 'deepseek-peak: failed to write cache');
         }
     }
 
@@ -160,7 +158,7 @@ class DeepSeekIndicator extends PanelMenu.Button {
                         foundWorkdays.push(...parsed.workdays);
                     } catch (e) {
                         failed = true;
-                        logError(e, `deepseek-peak: ${year} ophalen mislukt`);
+                        logError(e, `deepseek-peak: failed to fetch ${year}`);
                     }
 
                     if (--pending === 0)
@@ -187,12 +185,12 @@ class DeepSeekIndicator extends PanelMenu.Button {
             this._notifiedStale = true;
             this._notify(
                 failed
-                    ? 'Feestdagen ophalen mislukt.'
-                    : 'Nog geen nieuwe feestdagen beschikbaar.'
+                    ? 'Failed to fetch holidays.'
+                    : 'No new holidays available yet.'
             );
         } else {
             this._notifiedStale = false;
-            this._notify(`Feestdagen bijgewerkt (${found.length} dagen).`);
+            this._notify(`Holidays updated (${found.length} days).`);
         }
 
         this._update();
@@ -202,7 +200,7 @@ class DeepSeekIndicator extends PanelMenu.Button {
         try {
             Main.notify('DeepSeek Peak Pricing', body);
         } catch (e) {
-            logError(e, 'deepseek-peak: melding tonen mislukt');
+            logError(e, 'deepseek-peak: failed to show notification');
         }
     }
 

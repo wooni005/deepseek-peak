@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Dev-hulpmiddel: print exact dezelfde popup-inhoud als de GNOME-extensie,
-// zonder de shell te herstarten. De menu-inhoud komt uit dezelfde pure functie
-// (pricing.js -> buildMenuModel) die extension.js naar echte PopupMenu-items
-// rendert, dus dit is geen nabouw.
+// Dev tool: prints exactly the same popup contents as the GNOME extension,
+// without restarting the shell. The menu contents come from the same pure
+// function (pricing.js -> buildMenuModel) that extension.js renders into real
+// PopupMenu items, so this is not a re-implementation.
 //
-// Gebruik:
-//     node scripts/status.js                       # nu
-//     node scripts/status.js 2026-10-10T02:00:00Z  # specifiek moment
+// Usage:
+//     node scripts/status.js                       # now
+//     node scripts/status.js 2026-10-10T02:00:00Z  # specific moment
 //
-// Leest de cache die de extensie wegschrijft (of valt terug op de seed-tabel).
+// Reads the cache that the extension writes (or falls back to the seed table).
 
 import {existsSync, readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -27,7 +27,7 @@ const cachePath = process.env.DEEPSEEK_PEAK_CACHE ??
 
 let holidays = [...CHINESE_HOLIDAYS];
 let workdays = [];
-let cacheInfo = 'geen cache, alleen seed-tabel';
+let cacheInfo = 'no cache, seed table only';
 
 if (existsSync(cachePath)) {
     try {
@@ -38,9 +38,9 @@ if (existsSync(cachePath)) {
         if (Array.isArray(data.workdays))
             workdays = mergeWorkdays(workdays, data.workdays);
 
-        cacheInfo = `${cachePath} (${holidays.length} feestdagen, ${workdays.length} compensatiedagen)`;
+        cacheInfo = `${cachePath} (${holidays.length} holidays, ${workdays.length} compensatory workdays)`;
     } catch (e) {
-        cacheInfo = `${cachePath} lezen mislukt: ${e.message}`;
+        cacheInfo = `${cachePath} read failed: ${e.message}`;
     }
 }
 
@@ -48,16 +48,16 @@ const arg = process.argv[2];
 const now = arg ? new Date(arg) : new Date();
 
 if (Number.isNaN(now.getTime())) {
-    console.error(`Ongeldige datum: ${arg}`);
+    console.error(`Invalid date: ${arg}`);
     process.exit(2);
 }
 
 const model = buildMenuModel(now, holidays, workdays);
 
-console.log(`Panel: ${model.peak ? '🔴 Piektarief' : '🟢 Daltarief'}`);
+console.log(`Panel: ${model.panelLabel}`);
 console.log(`Moment: ${now.toISOString()}`);
 console.log('');
-console.log('Popup-menu:');
+console.log('Popup menu:');
 
 for (const entry of model.items) {
     if (entry.kind === 'separator')
