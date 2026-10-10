@@ -221,9 +221,17 @@ class DeepSeekIndicator extends PanelMenu.Button {
                 item.connect('activate', () => this._fetchHolidays());
                 this.menu.addMenuItem(item);
             } else {
-                this.menu.addMenuItem(
-                    new PopupMenu.PopupMenuItem(entry.text, {reactive: false})
+                const item = new PopupMenu.PopupMenuItem(
+                    entry.text,
+                    {reactive: false}
                 );
+
+                if (entry.style) {
+                    for (const name of entry.style.split(' '))
+                        item.label.add_style_class_name(name);
+                }
+
+                this.menu.addMenuItem(item);
             }
         }
     }

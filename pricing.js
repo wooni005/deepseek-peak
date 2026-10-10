@@ -103,8 +103,12 @@ function localDateKey(date, timeZone) {
     }).format(date);
 }
 
+// The popup must always be readable in English, independent of the system
+// locale (the panel label keeps using the system locale on purpose).
+const MENU_LOCALE = 'en-GB';
+
 export function formatWhen(date, now, timeZone) {
-    const time = date.toLocaleTimeString([], {
+    const time = date.toLocaleTimeString(MENU_LOCALE, {
         hour: '2-digit',
         minute: '2-digit',
         timeZone,
@@ -113,7 +117,7 @@ export function formatWhen(date, now, timeZone) {
     if (localDateKey(date, timeZone) === localDateKey(now, timeZone))
         return time;
 
-    const day = date.toLocaleDateString([], {
+    const day = date.toLocaleDateString(MENU_LOCALE, {
         weekday: 'short',
         day: 'numeric',
         month: 'short',
@@ -128,7 +132,7 @@ export function formatLocalHour(utcHour, now = new Date(), timeZone) {
 
     date.setUTCHours(utcHour, 0, 0, 0);
 
-    return date.toLocaleTimeString([], {
+    return date.toLocaleTimeString(MENU_LOCALE, {
         hour: '2-digit',
         minute: '2-digit',
         timeZone,
@@ -218,9 +222,13 @@ export function getStatus(now = new Date(), holidays = CHINESE_HOLIDAYS, workday
 // scripts/status.js prints exactly the same lines.
 //
 // Each entry is:
-//   {kind: 'item', text}                -> non-interactive text item
+//   {kind: 'item', text, style?}        -> non-interactive text item
 //   {kind: 'action', action, text}      -> action (e.g. 'refresh')
 //   {kind: 'separator'}                 -> separator line
+//
+// `style` is an optional space-separated list of CSS classes that extension.js
+// applies to the item label (e.g. 'deepseek-status deepseek-peak' or
+// 'deepseek-dim'); scripts/status.js and the tests ignore it.
 export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, workdays = []) {
     const peak = isPeak(now, holidays, workdays);
     const holiday = findHoliday(now, holidays);
@@ -246,6 +254,10 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
         panelLabel = `${panelLabel} ${weekday}${time}`;
     }
 
+    // Peak windows only apply on a Chinese workday (Mon-Fri or a compensatory
+    // workday) and never on a public holiday. They are shown for the whole day,
+    // even when both windows have already ended.
+    const peakEligible = !holiday && isWorkday(now, workdays);
     const windows = PEAK_PERIODS.map(
         p => `${formatLocalHour(p.start, now)}–${formatLocalHour(p.end, now)}`
     ).join(' · ');
@@ -256,42 +268,49 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
             text: peak
                 ? '🔴 DeepSeek API: peak pricing'
                 : '🟢 DeepSeek API: off-peak pricing',
+            style: peak
+                ? 'deepseek-status deepseek-peak'
+                : 'deepseek-status deepseek-offpeak',
         },
     ];
 
-    // The peak-hours block is only relevant on a real (compensatory) workday.
-    if (!holiday && isWorkday(now, workdays)) {
-        items.push({
-            kind: 'item',
-            text: '🔴 Peak pricing · Chinese workdays',
-        });
-        items.push({
-            kind: 'item',
-            text: windows,
-        });
-    }
-
+    // Holiday / compensatory-workday context lines sit above the peak-hours
+    // line, so the reason for "No peak hours today" is clear. Each is shown
+    // independently, also when the same day is both.
     if (holiday) {
         items.push({
             kind: 'item',
-            text: `🎉 Chinese holiday: ${holiday.name} · No peak pricing today`,
-        });
-    } else if (workday) {
-        items.push({
-            kind: 'item',
-            text: '🇨🇳 Compensatory workday · Normal peak windows apply today',
+            text: `🎉 Chinese holiday: ${holiday.name}`,
+            style: 'deepseek-dim',
         });
     }
+
+    if (workday) {
+        items.push({
+            kind: 'item',
+            text: '🇨🇳 Chinese compensatory workday',
+            style: 'deepseek-dim',
+        });
+    }
+
+    items.push({
+        kind: 'item',
+        text: peakEligible
+            ? `Peak hours today: ${windows}`
+            : 'No peak hours today',
+        style: 'deepseek-dim',
+    });
 
     if (!next) {
         items.push({
             kind: 'item',
             text: 'ℹ️ No price change in the next 14 days',
+            style: 'deepseek-dim',
         });
     } else if (peak) {
         items.push({
             kind: 'item',
-            text: `🟢 Off-peak from ${formatWhen(next, now)}`,
+            text: `Off-peak from ${formatWhen(next, now)}`,
         });
     } else {
         const period = PEAK_PERIODS.find(p => p.start === next.getUTCHours());
@@ -299,8 +318,8 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
         items.push({
             kind: 'item',
             text: period
-                ? `🔴 Next peak ${formatWhen(next, now)}–${formatLocalHour(period.end, next)}`
-                : `🔴 Next peak ${formatWhen(next, now)}`,
+                ? `Next peak: ${formatWhen(next, now)}–${formatLocalHour(period.end, next)}`
+                : `Next peak: ${formatWhen(next, now)}`,
         });
     }
 
@@ -308,6 +327,7 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
         items.push({
             kind: 'item',
             text: '⚠️ Holiday list may be out of date',
+            style: 'deepseek-dim',
         });
         items.push({
             kind: 'action',
@@ -315,15 +335,6 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
             text: 'Refresh holidays',
         });
     }
-
-    items.push({kind: 'separator'});
-    items.push({
-        kind: 'item',
-        text: `Local time: ${now.toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-        })}`,
-    });
 
     return {peak, holiday, workday, stale, next, panelLabel, items};
 }

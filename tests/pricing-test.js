@@ -7,6 +7,7 @@
 
 import {
     CHINESE_HOLIDAYS,
+    buildMenuModel,
     findHoliday,
     findWorkday,
     formatLocalHour,
@@ -232,6 +233,207 @@ check(
     'holiday takes precedence over compensatory day',
     peakLabel(isPeak(utc('2026-10-07T02:00:00Z'), HOLIDAYS, [{name: 'x', date: '2026-10-07'}])),
     'OFF-PEAK'
+);
+
+// 17. Popup hierarchy and the "Peak hours today" line.
+// The same buildMenuModel() drives both the GNOME popup and scripts/status.js.
+function itemTexts(model) {
+    return model.items
+        .filter(i => i.kind === 'item')
+        .map(i => i.text);
+}
+
+function hasText(model, text) {
+    return itemTexts(model).includes(text);
+}
+
+function todayWindows(now) {
+    return [[1, 4], [6, 10]]
+        .map(([s, e]) => `${formatLocalHour(s, now)}–${formatLocalHour(e, now)}`)
+        .join(' · ');
+}
+
+console.log('\n17) Popup: current status, peak-hours line and next peak');
+
+// 17a. Normal workday before peak hours: off-peak, windows still shown.
+const before = utc('2026-10-14T00:00:00Z');
+const beforeMenu = buildMenuModel(before, HOLIDAYS);
+check(
+    'before peak: status is off-peak',
+    hasText(beforeMenu, '🟢 DeepSeek API: off-peak pricing'),
+    true
+);
+check(
+    'before peak: today\'s windows shown',
+    hasText(beforeMenu, `Peak hours today: ${todayWindows(before)}`),
+    true
+);
+check(
+    'before peak: no red indicator while off-peak',
+    itemTexts(beforeMenu).some(t => t.startsWith('🔴')),
+    false
+);
+check(
+    'before peak: status carries the off-peak style',
+    beforeMenu.items[0].style,
+    'deepseek-status deepseek-offpeak'
+);
+
+// 17b. During peak hours: peak status plus both windows and off-peak start.
+const during = utc('2026-10-14T02:00:00Z');
+const duringMenu = buildMenuModel(during, HOLIDAYS);
+check(
+    'during peak: status is peak',
+    hasText(duringMenu, '🔴 DeepSeek API: peak pricing'),
+    true
+);
+check(
+    'during peak: both windows still shown',
+    hasText(duringMenu, `Peak hours today: ${todayWindows(during)}`),
+    true
+);
+check(
+    'during peak: off-peak transition shown',
+    itemTexts(duringMenu).some(t => t.startsWith('Off-peak from ')),
+    true
+);
+check(
+    'during peak: status carries the peak style',
+    duringMenu.items[0].style,
+    'deepseek-status deepseek-peak'
+);
+
+// 17c. After both windows have ended: off-peak, windows still shown.
+const after = utc('2026-10-14T11:00:00Z');
+const afterMenu = buildMenuModel(after, HOLIDAYS);
+check(
+    'after peak: status is off-peak',
+    hasText(afterMenu, '🟢 DeepSeek API: off-peak pricing'),
+    true
+);
+check(
+    'after peak: both windows still shown',
+    hasText(afterMenu, `Peak hours today: ${todayWindows(after)}`),
+    true
+);
+check(
+    'after peak: next peak on the following day',
+    itemTexts(afterMenu).some(t => t.startsWith('Next peak: ')),
+    true
+);
+
+// 17d. Compensatory workday on a Saturday: normal windows apply.
+const compDay = utc('2026-10-10T02:00:00Z');
+const compMenu = buildMenuModel(
+    compDay,
+    HOLIDAYS,
+    [{name: 'Compensatory workday', date: '2026-10-10'}]
+);
+check(
+    'compensatory workday: peak status',
+    hasText(compMenu, '🔴 DeepSeek API: peak pricing'),
+    true
+);
+check(
+    'compensatory workday: windows shown',
+    hasText(compMenu, `Peak hours today: ${todayWindows(compDay)}`),
+    true
+);
+check(
+    'compensatory workday: compact workday line',
+    hasText(compMenu, '🇨🇳 Chinese compensatory workday'),
+    true
+);
+check(
+    'compensatory workday: line sits above the peak-hours line',
+    itemTexts(compMenu).indexOf('🇨🇳 Chinese compensatory workday') <
+        itemTexts(compMenu).findIndex(t => t.startsWith('Peak hours today:')),
+    true
+);
+
+// 17d-bis. A compensatory workday that is also a holiday still shows the
+// workday line above the peak-hours line.
+const compHolidayMenu = buildMenuModel(
+    utc('2026-10-05T02:00:00Z'),
+    HOLIDAYS,
+    [{name: 'Compensatory workday', date: '2026-10-05'}]
+);
+check(
+    'compensatory holiday: workday line shown',
+    hasText(compHolidayMenu, '🇨🇳 Chinese compensatory workday'),
+    true
+);
+check(
+    'compensatory holiday: holiday line still shown',
+    hasText(compHolidayMenu, '🎉 Chinese holiday: National Day'),
+    true
+);
+check(
+    'compensatory holiday: workday line above peak-hours line',
+    itemTexts(compHolidayMenu).indexOf('🇨🇳 Chinese compensatory workday') <
+        itemTexts(compHolidayMenu).indexOf('No peak hours today'),
+    true
+);
+check(
+    'compensatory holiday: holiday line above peak-hours line',
+    itemTexts(compHolidayMenu).indexOf('🎉 Chinese holiday: National Day') <
+        itemTexts(compHolidayMenu).indexOf('No peak hours today'),
+    true
+);
+
+// 17e. Regular weekend without peak hours.
+const weekend = utc('2026-10-11T02:00:00Z');
+const weekendMenu = buildMenuModel(weekend, HOLIDAYS);
+check(
+    'weekend: no peak hours today',
+    hasText(weekendMenu, 'No peak hours today'),
+    true
+);
+check(
+    'weekend: no red indicator while off-peak',
+    itemTexts(weekendMenu).some(t => t.startsWith('🔴')),
+    false
+);
+
+// 17f. Chinese holiday: no peak hours, holiday line kept compact.
+const holiday = utc('2026-10-05T02:00:00Z');
+const holidayMenu = buildMenuModel(holiday, HOLIDAYS);
+check(
+    'holiday: no peak hours today',
+    hasText(holidayMenu, 'No peak hours today'),
+    true
+);
+check(
+    'holiday: compact holiday line',
+    hasText(holidayMenu, '🎉 Chinese holiday: National Day'),
+    true
+);
+check(
+    'holiday: line sits above the peak-hours line',
+    itemTexts(holidayMenu).indexOf('🎉 Chinese holiday: National Day') <
+        itemTexts(holidayMenu).indexOf('No peak hours today'),
+    true
+);
+
+// 17g. The Refresh holidays action and local time are preserved.
+const staleMenu = buildMenuModel(utc('2026-10-14T02:00:00Z'), HOLIDAYS);
+check(
+    'refresh button kept',
+    staleMenu.items.some(
+        i => i.kind === 'action' && i.action === 'refresh' &&
+            i.text === 'Refresh holidays'
+    ),
+    true
+);
+check(
+    'local time line removed',
+    itemTexts(staleMenu).some(t => t.startsWith('Local time: ')),
+    false
+);
+check(
+    'no trailing separator',
+    staleMenu.items.some(i => i.kind === 'separator'),
+    false
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

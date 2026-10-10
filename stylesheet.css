@@ -1,7 +1,15 @@
-.deepseek-peak {
+.deepseek-status {
     font-weight: bold;
 }
 
+.deepseek-peak {
+    color: #e01b24;
+}
+
 .deepseek-offpeak {
-    font-weight: bold;
+    color: #2ec27e;
+}
+
+.deepseek-dim {
+    font-size: 0.85em;
 }

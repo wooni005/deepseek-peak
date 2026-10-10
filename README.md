@@ -15,11 +15,15 @@ shell.
 - Panel indicator with a status dot and the time of the next price transition
   (e.g. `🔴 06:00`, or `🟢 Thu 01:00` when the transition is on another day).
 - Popup menu with:
-  - the current status;
-  - the peak windows (local, only on (compensatory) workdays);
-  - whether today is a Chinese holiday or a compensatory workday;
-  - the next price transition;
-  - the local time.
+  - the current status (green for off-peak, red for peak);
+  - today's Chinese holiday or compensatory workday, if any;
+  - one compact line with today's peak hours in local time, or
+    `No peak hours today` on weekends and holidays;
+  - the next peak (or the start of the next off-peak period);
+  - an out-of-date warning and a **Refresh holidays** button when the list has
+    expired.
+- The popup is always in English, independent of the system locale; only the
+  panel indicator keeps using the system locale.
 - Automatic fetching of the Chinese holiday calendar over HTTP, with a local
   cache and a warning when the list is out of date.
 - Notifications for an outdated list and after an update.
@@ -57,6 +61,7 @@ deepseek-peak/
 └── scripts/
     ├── deploy.sh         # Local install: copies the extension into ~/.local/share/gnome-shell/extensions
     ├── package.sh        # Builds an upload-ready zip for extensions.gnome.org in dist/
+    ├── scenarios.js      # Dev CLI: renders the popup for many day layouts at once
     └── status.js         # Dev CLI: prints the current popup contents without restarting the shell
 ```
 
@@ -161,14 +166,37 @@ Moment: 2026-10-07T07:31:26.509Z
 
 Popup menu:
 🟢 DeepSeek API: off-peak pricing
-🎉 Chinese holiday: National Day · No peak pricing today
-🔴 Next peak Thu 8 Oct 03:00–06:00
-────────────────────────────
-Local time: 09:31
+🎉 Chinese holiday: National Day
+No peak hours today
+Next peak: Thu 8 Oct 03:00–06:00
 ```
 
-Day and month names follow the system locale, so on a non-English system the
-dates in this example (and in the menu) will be abbreviated in that language.
+The popup is always rendered in English (`en-GB` date/time formatting), so day
+and month names stay readable on any system. Only the panel indicator follows
+the system locale, e.g. `Panel: 🟢 do 03:00` on a Dutch system.
+
+### Previewing different day layouts without restarting the shell
+
+`scripts/scenarios.js` renders the popup for a set of representative day
+layouts at once, using the same `buildMenuModel()` as the extension:
+
+```bash
+node scripts/scenarios.js                 # all scenarios
+node scripts/scenarios.js weekend         # only matching scenarios
+node scripts/scenarios.js --styles        # annotate lines with their CSS classes
+TZ=Europe/Prague node scripts/scenarios.js
+```
+
+It covers a normal workday (before, during and after peak, and in the gap
+between the two windows), a Saturday and Sunday weekend, a Chinese holiday, a
+compensatory workday (a weekend that becomes a workday), a holiday that is also
+a compensatory workday, a Friday evening whose next peak is on Monday, an
+out-of-date holiday list with the **Refresh holidays** button, and a synthetic
+long holiday with no price change in sight.
+
+The scenarios deliberately use the seed table in `pricing.js` (not the on-disk
+cache), so every run shows exactly the same layouts. Peak windows are shown in
+local time, so pin `TZ` for reproducible output.
 
 ### Architecture
 
