@@ -65,8 +65,7 @@ check('usable = true', valid.usable, true);
 check('dayCount = 2', valid.dayCount, 2);
 check('one holiday', valid.holidays.length, 1);
 check('holiday start', valid.holidays[0].start, '2026-01-01');
-check('one workday', valid.workdays.length, 1);
-check('workday date', valid.workdays[0].date, '2026-02-14');
+check('workdays are not stored', 'workdays' in valid, false);
 
 // 3. parseCalendar: empty future year is structurally valid but not usable.
 console.log('\n3) parseCalendar: empty future-year days');
@@ -111,14 +110,13 @@ check(
 console.log('\n5) cache serialize / parse round-trip');
 const state = {
     holidays: [{name: 'National Day', start: '2026-10-01', end: '2026-10-07'}],
-    workdays: [{name: 'Compensatory workday', date: '2026-10-10'}],
     years: {'2026': {updatedAt: 123456, confirmed: true}},
 };
 const restored = parseCache(serializeCache(state));
 checkDeep('holidays preserved', restored.holidays, state.holidays);
-checkDeep('workdays preserved', restored.workdays, state.workdays);
 checkDeep('years metadata preserved', restored.years, state.years);
-check('serialized version is 2', JSON.parse(serializeCache(state)).version, 2);
+check('serialized version is 3', JSON.parse(serializeCache(state)).version, 3);
+check('workdays are not serialized', 'workdays' in JSON.parse(serializeCache(state)), false);
 
 // 6. parseCache: malformed and legacy input.
 console.log('\n6) parseCache: malformed and legacy input');
@@ -130,16 +128,15 @@ const legacy = parseCache(JSON.stringify({
 }));
 check('legacy: 2026 derived', legacy.years['2026'].confirmed, true);
 check('legacy: refresh timestamp is 0 (refresh due)', legacy.years['2026'].updatedAt, 0);
+check('legacy: workdays ignored', 'workdays' in legacy, false);
 const dirty = parseCache(JSON.stringify({
     holidays: [
         {name: 'ok', start: '2026-10-01', end: '2026-10-07'},
         {name: 'reversed', start: '2026-10-09', end: '2026-10-01'},
         {name: 'bad', start: 'nope', end: 'nope'},
     ],
-    workdays: [{name: 'bad', date: 'nope'}],
 }));
 check('dirty: only valid holiday kept', dirty.holidays.length, 1);
-check('dirty: invalid workday dropped', dirty.workdays.length, 0);
 
 // 7. requiredYears uses China time and the November switch.
 console.log('\n7) requiredYears (China time, November switch)');
@@ -152,7 +149,6 @@ checkDeep('January → only the new current year', requiredYears(utc('2027-01-01
 console.log('\n8) isRefreshDue / yearsToFetch');
 const fresh = {
     holidays: [],
-    workdays: [],
     years: {'2026': {updatedAt: Date.parse('2026-10-10T00:00:00Z'), confirmed: true}},
 };
 const now = utc('2026-10-10T12:00:00Z');
@@ -168,7 +164,6 @@ checkDeep('manual bypasses the interval', yearsToFetch(now, fresh, {manual: true
 const december = utc('2026-12-15T12:00:00Z');
 const withOnly2026 = {
     holidays: [],
-    workdays: [],
     years: {'2026': {updatedAt: december.getTime(), confirmed: true}},
 };
 checkDeep(
@@ -189,7 +184,6 @@ const beforeReplace = {
         {name: 'old', start: '2026-01-01', end: '2026-01-01'},
         {name: 'keep', start: '2025-01-01', end: '2025-01-01'},
     ],
-    workdays: [],
     years: {},
 };
 const afterReplace = recordSuccess(beforeReplace, 2026, valid, 999);
@@ -210,19 +204,18 @@ check('year confirmed', afterReplace.years['2026'].confirmed, true);
 console.log('\n10) recordAttempt keeps cached data');
 const confirmed = {
     holidays: [{name: 'National Day', start: '2026-10-01', end: '2026-10-07'}],
-    workdays: [],
     years: {'2026': {updatedAt: 1, confirmed: true}},
 };
 const attempted = recordAttempt(confirmed, 2026, 5000);
 checkDeep('data preserved', attempted.holidays, confirmed.holidays);
 check('confirmation preserved', attempted.years['2026'].confirmed, true);
 check('timestamp moved', attempted.years['2026'].updatedAt, 5000);
-const failedFuture = recordAttempt({holidays: [], workdays: [], years: {}}, 2027, 5000);
+const failedFuture = recordAttempt({holidays: [], years: {}}, 2027, 5000);
 check('new future year is unconfirmed', failedFuture.years['2027'].confirmed, false);
 
 // 11. First startup and the unavailable-future-year retry throttle.
 console.log('\n11) first startup and future-year throttle');
-const emptyState = {holidays: [], workdays: [], years: {}};
+const emptyState = {holidays: [], years: {}};
 checkDeep(
     'first startup fetches the current year',
     yearsToFetch(utc('2026-10-10T12:00:00Z'), emptyState),
@@ -231,7 +224,6 @@ checkDeep(
 const decNow = utc('2026-12-15T18:00:00Z');
 const justAttempted = {
     holidays: [],
-    workdays: [],
     years: {
         '2026': {updatedAt: decNow.getTime() - 1000, confirmed: true},
         '2027': {updatedAt: decNow.getTime() - 1000, confirmed: false},
@@ -250,7 +242,6 @@ check(
 const nextDay = new Date(decNow.getTime() + REFRESH_INTERVAL_MS + 1000);
 const retryState = {
     holidays: [],
-    workdays: [],
     years: {
         '2026': {updatedAt: nextDay.getTime() - 1000, confirmed: true},
         '2027': {updatedAt: decNow.getTime(), confirmed: false},

@@ -12,8 +12,12 @@ export const PEAK_PERIODS = [
 
 // The extension no longer ships a hardcoded holiday table: the downloaded
 // calendar (see holidays.js) is the single source of truth. Every function
-// below therefore treats an empty `holidays`/`workdays` list as valid input and
-// simply falls back to the plain Mon-Fri / weekend rules.
+// below therefore treats an empty `holidays` list as valid input and simply
+// falls back to the plain Mon-Fri / weekend rules.
+//
+// DeepSeek's published rule is exactly "Monday through Friday, excluding
+// Chinese public holidays": weekends are always off-peak, and Chinese
+// compensatory workdays (调休) have no special meaning.
 
 function utcDateKey(date) {
     return date.toISOString().slice(0, 10);
@@ -29,29 +33,18 @@ export function holidayName(now, holidays = []) {
     return findHoliday(now, holidays)?.name ?? null;
 }
 
-export function findWorkday(now, workdays = []) {
-    const date = utcDateKey(now);
-
-    return workdays.find(w => w.date === date) ?? null;
-}
-
-export function isWorkday(now, workdays = []) {
+export function isWorkday(now) {
     const day = now.getUTCDay();
 
-    // Mon-Fri, or a Chinese compensatory workday in the weekend.
-    return (day >= 1 && day <= 5) || findWorkday(now, workdays) !== null;
+    return day >= 1 && day <= 5;
 }
 
-export function isPeak(now, holidays = [], workdays = []) {
-    // A Chinese compensatory workday (调休) is an authoritative, single-day
-    // override: it wins over a holiday range, so the normal peak windows apply.
-    const compensatory = findWorkday(now, workdays) !== null;
-
-    // Chinese public holidays are otherwise fully off-peak.
-    if (!compensatory && holidayName(now, holidays) !== null)
+export function isPeak(now, holidays = []) {
+    // Chinese public holidays are fully off-peak.
+    if (holidayName(now, holidays) !== null)
         return false;
 
-    if (!isWorkday(now, workdays))
+    if (!isWorkday(now))
         return false;
 
     const hour = now.getUTCHours();
@@ -62,8 +55,8 @@ export function isPeak(now, holidays = [], workdays = []) {
     );
 }
 
-export function nextTransition(now, holidays = [], workdays = []) {
-    const current = isPeak(now, holidays, workdays);
+export function nextTransition(now, holidays = []) {
+    const current = isPeak(now, holidays);
     const t = new Date(now);
 
     t.setUTCMinutes(0, 0, 0);
@@ -71,7 +64,7 @@ export function nextTransition(now, holidays = [], workdays = []) {
 
     // All tariff changes fall on whole UTC hours, so scan hour by hour.
     for (let i = 0; i < 24 * 14; i++) {
-        if (isPeak(t, holidays, workdays) !== current)
+        if (isPeak(t, holidays) !== current)
             return t;
 
         t.setUTCHours(t.getUTCHours() + 1);
@@ -183,29 +176,18 @@ export function mergeHolidays(base, extra) {
     return [...base, ...extra.filter(h => !seen.has(h.start))];
 }
 
-export function mergeWorkdays(base, extra) {
-    const seen = new Set(base.map(w => w.date));
-
-    return [...base, ...extra.filter(w => !seen.has(w.date))];
-}
-
 // Determines the full current status in one call: peak/off-peak, the active
-// holiday, a possible compensatory workday, whether the holiday list is stale,
-// and when the next price transition is.
-export function getStatus(now = new Date(), holidays = [], workdays = []) {
-    const workday = findWorkday(now, workdays);
-    // A compensatory workday overrides a holiday range, so a holiday only
-    // applies when no compensatory workday is active.
-    const holiday = workday ? null : findHoliday(now, holidays);
+// holiday, whether the holiday list is stale, and when the next price
+// transition is.
+export function getStatus(now = new Date(), holidays = []) {
+    const holiday = findHoliday(now, holidays);
 
     return {
-        peak: isPeak(now, holidays, workdays),
+        peak: isPeak(now, holidays),
         holiday,
         holidayName: holiday?.name ?? null,
-        workday,
-        workdayName: workday?.name ?? null,
         stale: isStale(now, holidays),
-        nextTransition: nextTransition(now, holidays, workdays),
+        nextTransition: nextTransition(now, holidays),
     };
 }
 
@@ -224,15 +206,11 @@ export function getStatus(now = new Date(), holidays = [], workdays = []) {
 //
 // `options.alwaysShowRefresh` (debug) keeps the Refresh holidays action in the
 // model even when the list is not stale.
-export function buildMenuModel(now = new Date(), holidays = [], workdays = [], options = {}) {
-    const peak = isPeak(now, holidays, workdays);
-    const workday = findWorkday(now, workdays);
-    // A compensatory workday overrides a holiday range, so a holiday only
-    // shows up (and only blocks peak hours) when no compensatory workday is
-    // active.
-    const holiday = workday ? null : findHoliday(now, holidays);
+export function buildMenuModel(now = new Date(), holidays = [], options = {}) {
+    const peak = isPeak(now, holidays);
+    const holiday = findHoliday(now, holidays);
     const stale = isStale(now, holidays);
-    const next = nextTransition(now, holidays, workdays);
+    const next = nextTransition(now, holidays);
 
     // Panel shows a status dot plus the time of the next price transition,
     // e.g. "🔴 06:00" (peak now, off-peak at 06:00) or "🟢 do 01:00".
@@ -252,12 +230,9 @@ export function buildMenuModel(now = new Date(), holidays = [], workdays = [], o
         panelLabel = `${panelLabel} ${weekday}${time}`;
     }
 
-    // Peak windows apply on a Chinese workday (Mon-Fri or a compensatory
-    // workday) and not on a public holiday. A compensatory workday overrides a
-    // holiday range, so a holiday only blocks peak hours when no compensatory
-    // workday is active. The windows are shown for the whole day, even when
-    // both have already ended.
-    const peakEligible = !holiday && isWorkday(now, workdays);
+    // Peak windows apply on a Mon-Fri workday and not on a public holiday. The
+    // windows are shown for the whole day, even when both have already ended.
+    const peakEligible = !holiday && isWorkday(now);
     const windows = PEAK_PERIODS.map(
         p => `${formatLocalHour(p.start, now)}–${formatLocalHour(p.end, now)}`
     ).join(' · ');
@@ -275,24 +250,13 @@ export function buildMenuModel(now = new Date(), holidays = [], workdays = [], o
         },
     ];
 
-    // Holiday / compensatory-workday context lines sit above the peak-hours
-    // line, so the reason for "No peak hours today" is clear. A compensatory
-    // workday overrides a holiday, so `holiday` is already null on such a day
-    // (see above) and only the workday line is shown.
+    // The holiday context line sits above the peak-hours line, so the reason
+    // for "No peak hours today" is clear.
     if (holiday) {
         items.push({
             kind: 'item',
             role: 'holiday',
             text: `🎉 Chinese holiday: ${holiday.name}`,
-            style: 'deepseek-line',
-        });
-    }
-
-    if (workday) {
-        items.push({
-            kind: 'item',
-            role: 'workday',
-            text: '🇨🇳 Chinese compensatory workday',
             style: 'deepseek-line',
         });
     }
@@ -359,5 +323,5 @@ export function buildMenuModel(now = new Date(), holidays = [], workdays = [], o
         });
     }
 
-    return {peak, holiday, workday, stale, next, panelLabel, items};
+    return {peak, holiday, stale, next, panelLabel, items};
 }

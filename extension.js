@@ -50,8 +50,7 @@ const DEBUG_ALWAYS_SHOW_REFRESH = true;
 // to no extra class.
 const TEXT_ITEM_CLASSES = {
     status: 'deepseek-status-row',
-    holiday: 'deepseek-workday-row',
-    workday: 'deepseek-workday-row',
+    holiday: 'deepseek-holiday-row',
     peakHours: 'deepseek-peak-row',
     info: 'deepseek-peak-row',
     stale: 'deepseek-stale-row',
@@ -63,7 +62,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
         super._init(0.0, 'DeepSeek Peak Pricing');
 
         this._holidays = [];
-        this._workdays = [];
         this._years = {};
         this._cacheLoaded = false;
         this._notifiedStale = false;
@@ -117,7 +115,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
     _cacheState() {
         return {
             holidays: this._holidays,
-            workdays: this._workdays,
             years: this._years,
         };
     }
@@ -127,13 +124,16 @@ class DeepSeekIndicator extends PanelMenu.Button {
             return;
 
         const now = new Date();
-        const model = buildMenuModel(now, this._holidays, this._workdays, {
+        const model = buildMenuModel(now, this._holidays, {
             alwaysShowRefresh: DEBUG_ALWAYS_SHOW_REFRESH,
         });
 
         this._label.text = model.panelLabel;
 
-        if (model.stale && !this._notifiedStale) {
+        // Only warn once the cache has been read: the first update runs before
+        // the async cache load finishes, when the (empty) holiday list would
+        // otherwise look stale on every startup.
+        if (model.stale && this._cacheLoaded && !this._notifiedStale) {
             this._notifiedStale = true;
             this._notify(
                 'Holiday list may be out of date. Open the menu to refresh.'
@@ -177,7 +177,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
 
         if (state) {
             this._holidays = state.holidays;
-            this._workdays = state.workdays;
             this._years = state.years;
         }
 
@@ -286,7 +285,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
                         );
 
                         this._holidays = next.holidays;
-                        this._workdays = next.workdays;
                         this._years = next.years;
                         updatedDays += parsed.dayCount;
                         metadataChanged = true;

@@ -16,7 +16,7 @@ tested with plain Node.js without restarting the shell.
   (e.g. `🔴 06:00`, or `🟢 Thu 01:00` when the transition is on another day).
 - Popup menu with:
   - the current status (green for off-peak, red for peak);
-  - today's Chinese holiday or compensatory workday, if any;
+  - today's Chinese holiday, if any;
   - one compact line with today's peak hours in local time, or
     `No peak hours today` on weekends and holidays;
   - the next peak (or the start of the next off-peak period);
@@ -30,8 +30,8 @@ tested with plain Node.js without restarting the shell.
 
 ## Pricing rules
 
-Peak pricing applies on **Chinese workdays** (Mon-Fri, plus compensatory
-workdays) in these UTC windows:
+Peak pricing applies **Monday through Friday**, excluding Chinese public
+holidays, in these UTC windows:
 
 | Window | UTC |
 | --- | --- |
@@ -39,15 +39,15 @@ workdays) in these UTC windows:
 | Morning | 06:00-10:00 |
 
 - Outside these windows: **off-peak**.
-- Weekend (not a compensatory workday): **off-peak**.
+- Weekend (Saturday and Sunday): **off-peak**, always.
 - Chinese holiday: **off-peak**, regardless of the window.
-- Chinese compensatory workday (调休, a weekend day that becomes a workday):
-  **the normal peak windows apply**.
 
-In the official calendar a day is either a holiday or a workday, never both.
-Should the merged data still contain both for one date, the compensatory
-workday wins: it is the authoritative, single-day override from the fetched
-calendar, so the normal peak windows apply and the holiday line is suppressed.
+This matches DeepSeek's published rule: *"Peak hours are 01:00 - 04:00 and
+06:00 - 10:00 UTC, Monday through Friday, excluding Chinese public holidays. All
+other hours are off-peak, including weekends and Chinese public holidays in
+full."* Chinese compensatory workdays (调休, weekend days that become working
+days on the official calendar) therefore have **no** special meaning: weekends
+stay off-peak.
 
 The UTC times are converted to the computer's local time in the menu.
 
@@ -151,9 +151,9 @@ node tests/holidays-test.js
   (`tests/fixtures/holidays.json`) and explicit dates, so they are reproducible.
 - Exit code `0` if everything passes, `1` on a failure.
 - `pricing-test.js` covers the peak windows, weekend, holidays, transitions
-  exactly at `04:00`/`06:00`/`10:00` UTC, transitions across midnight,
-  compensatory workdays, the local time for `Europe/Prague` (summer and winter
-  time), the current-year staleness rule and December/January boundaries.
+  exactly at `04:00`/`06:00`/`10:00` UTC, transitions across midnight, the local
+  time for `Europe/Prague` (summer and winter time), the current-year staleness
+  rule and December/January boundaries.
 - `holidays-test.js` covers payload validation, the empty future-year case, the
   cache round-trip and legacy cache, the China-time November switch, the 24-hour
   refresh throttle and the state transitions that preserve valid cached data.
@@ -169,9 +169,9 @@ node scripts/status.js 2026-10-14T02:00:00Z  # specific moment (ISO)
 ```
 
 The script reads the cache that the extension writes, so you see the fetched
-holidays and compensatory workdays. Without a cache the calendar is empty, so
-the plain Mon-Fri / weekend rules apply. You can override the cache location
-with the `DEEPSEEK_PEAK_CACHE` environment variable.
+holidays. Without a cache the calendar is empty, so the plain Mon-Fri / weekend
+rules apply. You can override the cache location with the `DEEPSEEK_PEAK_CACHE`
+environment variable.
 
 Example output:
 
@@ -204,8 +204,6 @@ TZ=Europe/Prague node scripts/scenarios.js
 
 It covers a normal workday (before, during and after peak, and in the gap
 between the two windows), a Saturday and Sunday weekend, a Chinese holiday, a
-compensatory workday (a weekend that becomes a workday), a defensive case where
-a compensatory workday overrides an overlapping holiday in inconsistent data, a
 Friday evening whose next peak is on Monday, an out-of-date holiday list with
 the **Refresh holidays** button, and a synthetic long holiday with no price
 change in sight.
@@ -239,18 +237,20 @@ immediately affects both the menu and the dev CLI.
   [NateScarlet/holiday-cn](https://github.com/NateScarlet/holiday-cn) (based on
   gov.cn) at
   `https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/<year>.json`.
-- Each yearly file's `days` are split into public holidays (`isOffDay: true`) and
-  Chinese compensatory workdays (`isOffDay: false`).
+- Each yearly file's `days` are validated, but only the public holidays
+  (`isOffDay: true`) are kept. Compensatory workdays (`isOffDay: false`) are
+  ignored because DeepSeek prices weekends as off-peak regardless.
 - Results are cached in:
 
   ```text
   $XDG_DATA_HOME/deepseek-peak/holidays.json
   ```
 
-  (usually `~/.local/share/deepseek-peak/holidays.json`). The cache keeps the
-  version 1 `holidays`/`workdays` arrays and adds a `years` block with the last
-  refresh time and confirmation flag per year. Writes are atomic (temporary file
-  plus rename).
+  (usually `~/.local/share/deepseek-peak/holidays.json`). The cache (schema
+  version 3) keeps the `holidays` array and a `years` block with the last refresh
+  time and confirmation flag per year. Older caches that still contain a
+  `workdays` array are read without error; those entries are simply ignored.
+  Writes are atomic (temporary file plus rename).
 - Startup loads the cache immediately and refreshes it asynchronously; a year is
   checked at most once every 24 hours. On first install the current year is
   fetched right away.
@@ -265,29 +265,29 @@ immediately affects both the menu and the dev CLI.
 
 | Function | Purpose |
 | --- | --- |
-| `isPeak(now, holidays, workdays)` | Current status: peak or off-peak. |
-| `nextTransition(now, holidays, workdays)` | Next price transition (or `null`). |
+| `isPeak(now, holidays)` | Current status: peak or off-peak. |
+| `nextTransition(now, holidays)` | Next price transition (or `null`). |
 | `findHoliday(now, holidays)` / `holidayName(...)` | Active Chinese holiday. |
-| `findWorkday(now, workdays)` / `isWorkday(...)` | Compensatory workday / workday check. |
-| `mergeHolidays(base, extra)` / `mergeWorkdays(base, extra)` | Deduplicating merge. |
+| `isWorkday(now)` | Mon-Fri check (weekends are always off-peak). |
+| `mergeHolidays(base, extra)` | Deduplicating merge. |
 | `lastHolidayEnd(holidays)` / `isStale(now, holidays)` | Current-year data check. |
 | `chinaDateKey(date)` / `chinaYear(date)` / `chinaMonth(date)` | China-time (UTC+8) helpers. |
 | `formatWhen(date, now, timeZone?)` | Date/time for the menu (relative to today). |
 | `formatLocalHour(utcHour, now, timeZone?)` | UTC hour to local time. |
 | `formatHolidayEnd(end, timeZone?)` | Format a holiday end date. |
-| `getStatus(now, holidays, workdays)` | Bundles peak/holiday/workday/stale/next. |
-| `buildMenuModel(now, holidays, workdays)` | Full popup contents as a data model. |
+| `getStatus(now, holidays)` | Bundles peak/holiday/stale/next. |
+| `buildMenuModel(now, holidays, options?)` | Full popup contents as a data model. |
 | `PEAK_PERIODS` | Peak-window constants. |
 
-All functions accept optional `holidays`/`workdays`; without arguments an empty
-list is used, so the plain Mon-Fri / weekend rules apply.
+All functions accept an optional `holidays` list; without it an empty list is
+used, so the plain Mon-Fri / weekend rules apply.
 
 ## `holidays.js` API
 
 | Function | Purpose |
 | --- | --- |
 | `holidayUrl(year)` | Source URL for a yearly calendar. |
-| `parseCalendar(data, requestedYear)` | Validates a holiday-cn file into `{valid, usable, dayCount, holidays, workdays}`. |
+| `parseCalendar(data, requestedYear)` | Validates a holiday-cn file into `{valid, usable, dayCount, holidays}`. |
 | `serializeCache(state)` / `parseCache(text)` | Atomic-cache (de)serialization; `parseCache` also accepts legacy caches. |
 | `recordSuccess(state, year, parsed, nowMs?)` | Replaces a year's entries and marks it confirmed. |
 | `recordAttempt(state, year, nowMs?)` | Keeps cached data, moves the refresh timestamp. |

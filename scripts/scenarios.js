@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Dev tool: renders the popup for a set of representative day layouts
-// (normal workday, weekend, holiday, compensatory workday, out-of-date list,
-// ...) without restarting the shell. The contents come from the same pure
+// (normal workday, weekend, holiday, out-of-date list, ...) without restarting
+// the shell. The contents come from the same pure
 // function (pricing.js -> buildMenuModel) that extension.js renders into real
 // PopupMenu items, so this is not a re-implementation.
 //
@@ -28,12 +28,6 @@ const FIXTURE = JSON.parse(
     readFileSync(join(here, '..', 'tests', 'fixtures', 'holidays.json'), 'utf8')
 );
 const FIXTURE_HOLIDAYS = FIXTURE.holidays;
-
-// A compensatory workday is a weekend day that the Chinese State Council turns
-// into a working day, so the normal peak windows apply on it.
-function compensatoryWorkday(date) {
-    return {name: 'Compensatory workday', date};
-}
 
 const scenarios = [
     {
@@ -67,21 +61,6 @@ const scenarios = [
     {
         title: 'Chinese holiday — National Day (Monday)',
         now: '2026-10-05T02:00:00Z',
-    },
-    {
-        title: 'Compensatory workday — Saturday, during peak',
-        now: '2026-09-19T02:00:00Z',
-        workdays: [compensatoryWorkday('2026-09-19')],
-    },
-    {
-        title: 'Compensatory workday — Saturday, outside peak window',
-        now: '2026-09-19T05:00:00Z',
-        workdays: [compensatoryWorkday('2026-09-19')],
-    },
-    {
-        title: 'Defensive: compensatory workday overrides a holiday (inconsistent data)',
-        now: '2026-10-05T02:00:00Z',
-        workdays: [compensatoryWorkday('2026-10-05')],
     },
     {
         title: 'Friday evening — next peak on Monday (cross-day label)',
@@ -154,8 +133,7 @@ console.log('');
 for (const scenario of selected) {
     const now = new Date(scenario.now);
     const holidays = scenario.holidays ?? FIXTURE_HOLIDAYS;
-    const workdays = scenario.workdays ?? [];
-    const model = buildMenuModel(now, holidays, workdays);
+    const model = buildMenuModel(now, holidays);
 
     console.log('='.repeat(60));
     console.log(scenario.title);

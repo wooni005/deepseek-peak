@@ -12,7 +12,6 @@ import {dirname, join} from 'node:path';
 import {
     buildMenuModel,
     findHoliday,
-    findWorkday,
     formatLocalHour,
     formatWhen,
     getStatus,
@@ -33,7 +32,6 @@ const fixturePath = join(
 const FIXTURE = JSON.parse(readFileSync(fixturePath, 'utf8'));
 
 const HOLIDAYS = FIXTURE.holidays;
-const WORKDAYS = FIXTURE.workdays;
 
 let passed = 0;
 let failed = 0;
@@ -173,8 +171,8 @@ check(`winter 06:00 UTC → ${winterClose} local (CET, expected 07:00)`, hour24(
 check(`summer 01:00 UTC → ${summerOpen} local (CEST, expected 03:00)`, hour24(summerOpen), 3);
 check(`summer 06:00 UTC → ${summerClose} local (CEST, expected 08:00)`, hour24(summerClose), 8);
 
-// Extra: parseCalendar also returns Chinese compensatory workdays.
-console.log('\n13) parseCalendar: holidays + compensatory workdays');
+// Extra: parseCalendar keeps off days and ignores compensatory workdays.
+console.log('\n13) parseCalendar: off days kept, workdays ignored');
 const parsed = parseCalendar({
     days: [
         {name: 'National Day', date: '2026-10-01', isOffDay: true},
@@ -182,8 +180,7 @@ const parsed = parseCalendar({
     ],
 });
 check('one holiday parsed', parsed.holidays.length, 1);
-check('one compensatory workday parsed', parsed.workdays.length, 1);
-check('compensatory workday date', parsed.workdays[0].date, '2026-09-27');
+check('compensatory workday is ignored', 'workdays' in parsed, false);
 
 // Extra: formatWhen shows only a time on the same day and date+time otherwise.
 console.log('\n14) formatWhen: same day vs. different day');
@@ -212,47 +209,6 @@ check(
 const holidayStatus = getStatus(utc('2026-10-07T02:00:00Z'), HOLIDAYS);
 check('holiday: status.peak = false', holidayStatus.peak, false);
 check('holiday: status.holidayName', holidayStatus.holidayName, 'National Day');
-
-// 16. Chinese compensatory workdays count as a workday.
-console.log('\n16) Compensatory workdays treated as a workday');
-const satWorkday = [{name: 'Compensatory workday', date: '2026-10-10'}]; // Saturday
-const sunWorkday = [{name: 'Compensatory workday', date: '2026-10-11'}]; // Sunday
-
-check(
-    'Saturday 02:00 without compensatory day = OFF-PEAK',
-    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS)),
-    'OFF-PEAK'
-);
-check(
-    'Saturday 02:00 with compensatory day = PEAK',
-    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS, satWorkday)),
-    'PEAK'
-);
-check(
-    'Saturday 05:00 with compensatory day = OFF-PEAK (outside window)',
-    peakLabel(isPeak(utc('2026-10-10T05:00:00Z'), HOLIDAYS, satWorkday)),
-    'OFF-PEAK'
-);
-check(
-    'Sunday 06:00 with compensatory day = PEAK',
-    peakLabel(isPeak(utc('2026-10-11T06:00:00Z'), HOLIDAYS, sunWorkday)),
-    'PEAK'
-);
-check(
-    'findWorkday finds the day',
-    findWorkday(utc('2026-10-10T02:00:00Z'), satWorkday)?.name,
-    'Compensatory workday'
-);
-check(
-    'nextTransition from Fri 10:00 jumps to the Sat compensatory day',
-    nextTransition(utc('2026-10-09T10:00:00Z'), HOLIDAYS, satWorkday)?.toISOString(),
-    '2026-10-10T01:00:00.000Z'
-);
-check(
-    'compensatory day overrides a holiday (workday wins)',
-    peakLabel(isPeak(utc('2026-10-07T02:00:00Z'), HOLIDAYS, [{name: 'x', date: '2026-10-07'}])),
-    'PEAK'
-);
 
 // 17. Popup hierarchy and the "Peak hours today" line.
 // The same buildMenuModel() drives both the GNOME popup and scripts/status.js.
@@ -341,73 +297,6 @@ check(
     true
 );
 
-// 17d. Compensatory workday on a Saturday: normal windows apply.
-const compDay = utc('2026-10-10T02:00:00Z');
-const compMenu = buildMenuModel(
-    compDay,
-    HOLIDAYS,
-    [{name: 'Compensatory workday', date: '2026-10-10'}]
-);
-check(
-    'compensatory workday: peak status',
-    hasText(compMenu, '🔴 DeepSeek API: peak pricing'),
-    true
-);
-check(
-    'compensatory workday: windows shown',
-    hasText(compMenu, `Peak hours today: ${todayWindows(compDay)}`),
-    true
-);
-check(
-    'compensatory workday: compact workday line',
-    hasText(compMenu, '🇨🇳 Chinese compensatory workday'),
-    true
-);
-check(
-    'compensatory workday: line sits above the peak-hours line',
-    itemTexts(compMenu).indexOf('🇨🇳 Chinese compensatory workday') <
-        itemTexts(compMenu).findIndex(t => t.startsWith('Peak hours today:')),
-    true
-);
-
-// 17d-bis. A compensatory workday that is also a holiday: the workday wins
-// (this cannot happen with real data, but the override must be consistent), so
-// the holiday line is suppressed and the normal peak windows apply.
-const compHolidayMenu = buildMenuModel(
-    utc('2026-10-05T02:00:00Z'),
-    HOLIDAYS,
-    [{name: 'Compensatory workday', date: '2026-10-05'}]
-);
-check(
-    'compensatory holiday: workday line shown',
-    hasText(compHolidayMenu, '🇨🇳 Chinese compensatory workday'),
-    true
-);
-check(
-    'compensatory holiday: holiday line suppressed by the override',
-    hasText(compHolidayMenu, '🎉 Chinese holiday: National Day'),
-    false
-);
-check(
-    'compensatory holiday: peak status wins over the holiday',
-    hasText(compHolidayMenu, '🔴 DeepSeek API: peak pricing'),
-    true
-);
-check(
-    'compensatory holiday: windows shown',
-    hasText(
-        compHolidayMenu,
-        `Peak hours today: ${todayWindows(utc('2026-10-05T02:00:00Z'))}`
-    ),
-    true
-);
-check(
-    'compensatory holiday: workday line above peak-hours line',
-    itemTexts(compHolidayMenu).indexOf('🇨🇳 Chinese compensatory workday') <
-        itemTexts(compHolidayMenu).findIndex(t => t.startsWith('Peak hours today:')),
-    true
-);
-
 // 17e. Regular weekend without peak hours.
 const weekend = utc('2026-10-11T02:00:00Z');
 const weekendMenu = buildMenuModel(weekend, HOLIDAYS);
@@ -491,16 +380,18 @@ check(
     true
 );
 
-// 19. Fixture compensatory workdays (a weekend day that becomes a workday).
-console.log('\n19) Fixture compensatory workdays');
+// 19. A weekend day is off-peak regardless of the Chinese calendar: DeepSeek
+// prices weekends as off-peak, with no special meaning for compensatory
+// workdays (调休).
+console.log('\n19) Weekend is off-peak regardless of the Chinese calendar');
 check(
-    'Saturday 2026-10-10 with fixture workday = PEAK',
-    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS, WORKDAYS)),
-    'PEAK'
+    'Saturday 2026-10-10 during a window = OFF-PEAK',
+    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS)),
+    'OFF-PEAK'
 );
 check(
-    'Saturday 2026-10-10 without workdays = OFF-PEAK',
-    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS)),
+    'Sunday 2027-01-10 during a window = OFF-PEAK',
+    peakLabel(isPeak(utc('2027-01-10T02:00:00Z'), HOLIDAYS)),
     'OFF-PEAK'
 );
 
@@ -508,22 +399,22 @@ check(
 console.log('\n20) December / January boundary');
 check(
     '2026-12-31 (Thursday) during window = PEAK',
-    peakLabel(isPeak(utc('2026-12-31T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    peakLabel(isPeak(utc('2026-12-31T02:00:00Z'), HOLIDAYS)),
     'PEAK'
 );
 check(
     '2027-01-01 is a holiday = OFF-PEAK',
-    peakLabel(isPeak(utc('2027-01-01T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    peakLabel(isPeak(utc('2027-01-01T02:00:00Z'), HOLIDAYS)),
     'OFF-PEAK'
 );
 check(
-    '2027-01-09 compensatory Saturday = PEAK',
-    peakLabel(isPeak(utc('2027-01-09T02:00:00Z'), HOLIDAYS, WORKDAYS)),
-    'PEAK'
+    '2027-01-09 (Saturday) = OFF-PEAK',
+    peakLabel(isPeak(utc('2027-01-09T02:00:00Z'), HOLIDAYS)),
+    'OFF-PEAK'
 );
 check(
     '2027-01-04 (Monday, after the holiday) = PEAK',
-    peakLabel(isPeak(utc('2027-01-04T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    peakLabel(isPeak(utc('2027-01-04T02:00:00Z'), HOLIDAYS)),
     'PEAK'
 );
 
@@ -536,7 +427,6 @@ console.log('\n22) alwaysShowRefresh debug option');
 const forced = buildMenuModel(
     utc('2026-10-14T02:00:00Z'),
     HOLIDAYS,
-    [],
     {alwaysShowRefresh: true}
 );
 check(

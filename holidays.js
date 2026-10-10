@@ -13,16 +13,16 @@ import {
     chinaMonth,
     chinaYear,
     mergeHolidays,
-    mergeWorkdays,
     yearOf,
 } from './pricing.js';
 
 // Check a year for updates at most once a day.
 export const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-// Cache schema version. Version 2 adds the per-year `years` metadata block on
-// top of the version 1 `holidays`/`workdays` arrays.
-export const CACHE_VERSION = 2;
+// Cache schema version. Version 2 added the per-year `years` metadata block.
+// Version 3 drops the unused `workdays` array: DeepSeek prices weekends as
+// off-peak regardless of Chinese compensatory workdays.
+export const CACHE_VERSION = 3;
 
 export function holidayUrl(year) {
     return `https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/${year}.json`;
@@ -43,7 +43,7 @@ function isValidDateKey(value) {
 }
 
 function invalidCalendar() {
-    return {valid: false, usable: false, dayCount: 0, holidays: [], workdays: []};
+    return {valid: false, usable: false, dayCount: 0, holidays: []};
 }
 
 // Parses and validates one holiday-cn yearly file.
@@ -51,11 +51,15 @@ function invalidCalendar() {
 // `requestedYear` is the year the file is expected to describe. When it is
 // given, a present `data.year` field must match it and every date must belong
 // to it. The result always has the same shape:
-//   {valid, usable, dayCount, holidays, workdays}
+//   {valid, usable, dayCount, holidays}
 // `valid` is true when the structure passed validation. `usable` is true only
 // when the structure is valid *and* at least one day was returned, so an empty
 // `days` array (a future year that has not been announced yet) is never treated
 // as confirmed holiday data.
+//
+// Only off days (`isOffDay: true`) are kept. Compensatory workdays
+// (`isOffDay: false`) are still validated but discarded: DeepSeek treats
+// weekends as off-peak whatever the Chinese calendar says.
 export function parseCalendar(data, requestedYear) {
     if (data === null || typeof data !== 'object' || Array.isArray(data))
         return invalidCalendar();
@@ -73,7 +77,6 @@ export function parseCalendar(data, requestedYear) {
         return invalidCalendar();
 
     const holidays = [];
-    const workdays = [];
 
     for (const day of data.days) {
         if (day === null || typeof day !== 'object' || Array.isArray(day))
@@ -88,12 +91,11 @@ export function parseCalendar(data, requestedYear) {
         if (hasRequestedYear && yearOf(day.date) !== Number(requestedYear))
             return invalidCalendar();
 
-        const name = typeof day.name === 'string' ? day.name : '';
+        if (day.isOffDay) {
+            const name = typeof day.name === 'string' ? day.name : '';
 
-        if (day.isOffDay)
             holidays.push({name, start: day.date, end: day.date});
-        else
-            workdays.push({name, date: day.date});
+        }
     }
 
     return {
@@ -101,7 +103,6 @@ export function parseCalendar(data, requestedYear) {
         usable: data.days.length > 0,
         dayCount: data.days.length,
         holidays,
-        workdays,
     };
 }
 
@@ -121,19 +122,6 @@ function sanitizeHoliday(entry) {
         name: typeof entry.name === 'string' ? entry.name : '',
         start: entry.start,
         end: entry.end,
-    };
-}
-
-function sanitizeWorkday(entry) {
-    if (entry === null || typeof entry !== 'object')
-        return null;
-
-    if (!isValidDateKey(entry.date))
-        return null;
-
-    return {
-        name: typeof entry.name === 'string' ? entry.name : '',
-        date: entry.date,
     };
 }
 
@@ -178,7 +166,6 @@ export function serializeCache(state) {
     return JSON.stringify({
         version: CACHE_VERSION,
         holidays: state?.holidays ?? [],
-        workdays: state?.workdays ?? [],
         years,
     }, null, 2);
 }
@@ -200,7 +187,6 @@ export function parseCache(text) {
         return null;
 
     const holidays = sanitizeList(data.holidays, sanitizeHoliday);
-    const workdays = sanitizeList(data.workdays, sanitizeWorkday);
     const years = {};
 
     if (data.years !== null && typeof data.years === 'object' &&
@@ -223,14 +209,7 @@ export function parseCache(text) {
             years[year] = {updatedAt: 0, confirmed: true};
     }
 
-    for (const workday of workdays) {
-        const year = String(yearOf(workday.date));
-
-        if (!years[year])
-            years[year] = {updatedAt: 0, confirmed: true};
-    }
-
-    return {holidays, workdays, years};
+    return {holidays, years};
 }
 
 // --- state transitions -------------------------------------------------------
@@ -243,14 +222,9 @@ export function recordSuccess(state, year, parsed, nowMs = Date.now()) {
         state.holidays.filter(h => String(yearOf(h.start)) !== key),
         parsed.holidays
     );
-    const workdays = mergeWorkdays(
-        state.workdays.filter(w => String(yearOf(w.date)) !== key),
-        parsed.workdays
-    );
 
     return {
         holidays,
-        workdays,
         years: {
             ...state.years,
             [key]: {updatedAt: nowMs, confirmed: true},

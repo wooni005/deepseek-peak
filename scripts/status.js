@@ -23,7 +23,6 @@ const cachePath = process.env.DEEPSEEK_PEAK_CACHE ??
     join(dataHome, 'deepseek-peak', 'holidays.json');
 
 let holidays = [];
-let workdays = [];
 let cacheInfo = 'no cache';
 
 if (existsSync(cachePath)) {
@@ -32,8 +31,7 @@ if (existsSync(cachePath)) {
 
         if (state) {
             holidays = state.holidays;
-            workdays = state.workdays;
-            cacheInfo = `${cachePath} (${holidays.length} holidays, ${workdays.length} compensatory workdays)`;
+            cacheInfo = `${cachePath} (${holidays.length} holidays)`;
         } else {
             cacheInfo = `${cachePath} invalid`;
         }
@@ -50,7 +48,7 @@ if (Number.isNaN(now.getTime())) {
     process.exit(2);
 }
 
-const model = buildMenuModel(now, holidays, workdays);
+const model = buildMenuModel(now, holidays);
 
 console.log(`Panel: ${model.panelLabel}`);
 console.log(`Moment: ${now.toISOString()}`);

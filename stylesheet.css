@@ -25,8 +25,8 @@
     padding-bottom: 8px;
 }
 
-/* Holiday / compensatory-workday row: its own distinct row. */
-.popup-menu-item.deepseek-workday-row {
+/* Holiday row: its own distinct row. */
+.popup-menu-item.deepseek-holiday-row {
     padding-top: 4px;
     padding-bottom: 4px;
 }
