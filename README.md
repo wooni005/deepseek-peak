@@ -31,23 +31,27 @@ tested with plain Node.js without restarting the shell.
 ## Pricing rules
 
 Peak pricing applies **Monday through Friday**, excluding Chinese public
-holidays, in these UTC windows:
+holidays, in these UTC windows, which correspond to DeepSeek's Beijing
+(UTC+8) working hours:
 
-| Window | UTC |
-| --- | --- |
-| Morning | 01:00-04:00 |
-| Morning | 06:00-10:00 |
+| Window | UTC+8 (working hours) | Europe (CET / CEST) | UTC |
+| --- | --- | --- | --- |
+| Morning | 09:00-12:00 | 02:00-05:00 / 03:00-06:00 | 01:00-04:00 |
+| Afternoon | 14:00-18:00 | 07:00-11:00 / 08:00-12:00 | 06:00-10:00 |
 
 - Outside these windows: **off-peak**.
 - Weekend (Saturday and Sunday): **off-peak**, always.
 - Chinese holiday: **off-peak**, regardless of the window.
+- Chinese compensatory workday (调休): **off-peak**, even though it counts as an
+  official working day.
+
+The European column gives CET (winter, UTC+1) first and CEST (summer, UTC+2)
+second.
 
 This matches DeepSeek's published rule: *"Peak hours are 01:00 - 04:00 and
 06:00 - 10:00 UTC, Monday through Friday, excluding Chinese public holidays. All
 other hours are off-peak, including weekends and Chinese public holidays in
-full."* Chinese compensatory workdays (调休, weekend days that become working
-days on the official calendar) therefore have **no** special meaning: weekends
-stay off-peak.
+full."*
 
 The UTC times are converted to the computer's local time in the menu.
 
