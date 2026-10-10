@@ -43,7 +43,7 @@ const HTTP_OK = 200;
 // DEBUG: when true, the "Refresh holidays" button is always shown, even when
 // the holiday data is up to date, so the manual refresh path can be tested
 // without waiting for stale data. Set back to false before releasing.
-// const DEBUG_ALWAYS_SHOW_REFRESH = true;
+const DEBUG_ALWAYS_SHOW_REFRESH = false;
 
 // Maps a menu entry role to the item-level CSS class that controls its spacing
 // in the popup. Named roles come from buildMenuModel(); unknown roles fall back
