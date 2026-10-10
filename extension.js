@@ -32,6 +32,18 @@ const CACHE_PATH = GLib.build_filenamev([
     'holidays.json',
 ]);
 
+// Maps a menu entry role to the item-level CSS class that controls its spacing
+// in the popup. Named roles come from buildMenuModel(); unknown roles fall back
+// to no extra class.
+const TEXT_ITEM_CLASSES = {
+    status: 'deepseek-status-row',
+    holiday: 'deepseek-workday-row',
+    workday: 'deepseek-workday-row',
+    peakHours: 'deepseek-peak-row',
+    info: 'deepseek-peak-row',
+    stale: 'deepseek-stale-row',
+};
+
 const DeepSeekIndicator = GObject.registerClass(
 class DeepSeekIndicator extends PanelMenu.Button {
     _init() {
@@ -61,6 +73,15 @@ class DeepSeekIndicator extends PanelMenu.Button {
         );
 
         this._update();
+    }
+
+    destroy() {
+        if (this._timerId) {
+            GLib.source_remove(this._timerId);
+            this._timerId = null;
+        }
+
+        super.destroy();
     }
 
     _update() {
@@ -217,28 +238,97 @@ class DeepSeekIndicator extends PanelMenu.Button {
             if (entry.kind === 'separator') {
                 this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             } else if (entry.kind === 'action' && entry.action === 'refresh') {
-                const item = new PopupMenu.PopupMenuItem(entry.text);
-                item.connect('activate', () => this._fetchHolidays());
-                this.menu.addMenuItem(item);
+                this.menu.addMenuItem(this._buildRefreshItem(entry));
+            } else if (entry.role === 'next') {
+                this.menu.addMenuItem(this._buildNextItem(entry));
             } else {
-                const item = new PopupMenu.PopupMenuItem(
-                    entry.text,
-                    {reactive: false}
-                );
+                // The stale warning opens the footer group, separated from the
+                // schedule above it.
+                if (entry.role === 'stale')
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-                if (entry.style) {
-                    for (const name of entry.style.split(' '))
-                        item.label.add_style_class_name(name);
-                }
-
-                this.menu.addMenuItem(item);
+                this.menu.addMenuItem(this._buildTextItem(entry));
             }
         }
+    }
+
+    _buildTextItem(entry) {
+        const item = new PopupMenu.PopupMenuItem(
+            entry.text,
+            {reactive: false}
+        );
+
+        item.add_style_class_name('deepseek-item');
+
+        const roleClass = TEXT_ITEM_CLASSES[entry.role];
+
+        if (roleClass)
+            item.add_style_class_name(roleClass);
+
+        // The schedule summary and the warning are intentionally muted so they
+        // stay secondary to the status and the next peak.
+        if (entry.role === 'peakHours' || entry.role === 'info' ||
+                entry.role === 'stale')
+            item.label.add_style_class_name('dim-label');
+
+        if (entry.style) {
+            for (const name of entry.style.split(' '))
+                item.label.add_style_class_name(name);
+        }
+
+        return item;
+    }
+
+    _buildNextItem(entry) {
+        const item = new PopupMenu.PopupBaseMenuItem({
+            reactive: false,
+            can_focus: false,
+        });
+
+        item.add_style_class_name('popup-menu-item');
+        item.add_style_class_name('deepseek-item');
+        item.add_style_class_name('deepseek-next-item');
+
+        const box = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+        });
+
+        box.add_child(new St.Label({
+            text: entry.caption ?? entry.text,
+            style_class: 'deepseek-caption dim-label',
+        }));
+        box.add_child(new St.Label({
+            text: entry.value ?? entry.text,
+            style_class: 'deepseek-next-value',
+        }));
+
+        item.add_child(box);
+
+        return item;
+    }
+
+    _buildRefreshItem(entry) {
+        const item = new PopupMenu.PopupMenuItem(entry.text);
+
+        item.add_style_class_name('deepseek-button');
+        item.label.add_style_class_name('deepseek-button-label');
+        item.label.x_expand = true;
+        item.connect('activate', () => this._fetchHolidays());
+
+        return item;
     }
 });
 
 export default class DeepSeekPeakExtension extends Extension {
     enable() {
+        // A previous version left its indicator registered on re-enable; drop
+        // any stale instance before adding ours so the role does not conflict.
+        const stale = Main.panel.statusArea['deepseek-peak'];
+
+        if (stale)
+            stale.destroy();
+
         this._indicator = new DeepSeekIndicator();
 
         Main.panel.addToStatusArea(
@@ -248,6 +338,7 @@ export default class DeepSeekPeakExtension extends Extension {
     }
 
     disable() {
+        this._indicator.destroy();
         this._indicator = null;
     }
 }

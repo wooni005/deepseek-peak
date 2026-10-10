@@ -1,5 +1,7 @@
+/* Current status: the primary element of the popup. */
 .deepseek-status {
     font-weight: bold;
+    font-size: 1.05em;
 }
 
 .deepseek-peak {
@@ -8,6 +10,67 @@
 
 .deepseek-offpeak {
     color: #2ec27e;
+}
+
+/* Base row tightening so the popup reads as one calm block instead of a
+   stack of independent status lines. */
+.popup-menu-item.deepseek-item {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+/* Current status row: room below before the details. */
+.popup-menu-item.deepseek-status-row {
+    padding-top: 4px;
+    padding-bottom: 8px;
+}
+
+/* Holiday / compensatory-workday row: its own distinct row. */
+.popup-menu-item.deepseek-workday-row {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+/* Peak-hours summary: small, muted and clearly secondary. */
+.popup-menu-item.deepseek-peak-row {
+    padding-top: 1px;
+    padding-bottom: 6px;
+}
+
+/* Next price change: grouped caption plus emphasized value. */
+.popup-menu-item.deepseek-next-item {
+    margin: 4px 0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.deepseek-caption {
+    font-size: 0.8em;
+}
+
+.deepseek-next-value {
+    font-size: 1.05em;
+    font-weight: bold;
+}
+
+/* Holiday warning opens the footer group. */
+.popup-menu-item.deepseek-stale-row {
+    padding-top: 10px;
+    padding-bottom: 2px;
+}
+
+/* Refresh action: centered, outlined, native-feeling. */
+.popup-menu-item.deepseek-button {
+    margin: 6px 12px 2px;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 8px;
+}
+
+.deepseek-button-label {
+    text-align: center;
 }
 
 .deepseek-dim {

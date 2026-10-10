@@ -234,7 +234,7 @@ export function getStatus(now = new Date(), holidays = CHINESE_HOLIDAYS, workday
 //
 // `style` is an optional space-separated list of CSS classes that extension.js
 // applies to the item label (e.g. 'deepseek-status deepseek-peak' or
-// 'deepseek-dim'); scripts/status.js and the tests ignore it.
+// 'deepseek-line'); scripts/status.js and the tests ignore it.
 export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, workdays = []) {
     const peak = isPeak(now, holidays, workdays);
     const workday = findWorkday(now, workdays);
@@ -276,6 +276,7 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
     const items = [
         {
             kind: 'item',
+            role: 'status',
             text: peak
                 ? '🔴 DeepSeek API: peak pricing'
                 : '🟢 DeepSeek API: off-peak pricing',
@@ -292,21 +293,24 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
     if (holiday) {
         items.push({
             kind: 'item',
+            role: 'holiday',
             text: `🎉 Chinese holiday: ${holiday.name}`,
-            style: 'deepseek-dim',
+            style: 'deepseek-line',
         });
     }
 
     if (workday) {
         items.push({
             kind: 'item',
+            role: 'workday',
             text: '🇨🇳 Chinese compensatory workday',
-            style: 'deepseek-dim',
+            style: 'deepseek-line',
         });
     }
 
     items.push({
         kind: 'item',
+        role: 'peakHours',
         text: peakEligible
             ? `Peak hours today: ${windows}`
             : 'No peak hours today',
@@ -316,30 +320,41 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
     if (!next) {
         items.push({
             kind: 'item',
+            role: 'info',
             text: 'ℹ️ No price change in the next 14 days',
-            style: 'deepseek-dim',
+            style: 'deepseek-line',
         });
     } else if (peak) {
         items.push({
             kind: 'item',
+            role: 'next',
+            caption: 'Off-peak from',
+            value: formatWhen(next, now),
             text: `Off-peak from ${formatWhen(next, now)}`,
+            style: 'deepseek-line',
         });
     } else {
         const period = PEAK_PERIODS.find(p => p.start === next.getUTCHours());
+        const value = period
+            ? `${formatWhen(next, now)}–${formatLocalHour(period.end, next)}`
+            : formatWhen(next, now);
 
         items.push({
             kind: 'item',
-            text: period
-                ? `Next peak: ${formatWhen(next, now)}–${formatLocalHour(period.end, next)}`
-                : `Next peak: ${formatWhen(next, now)}`,
+            role: 'next',
+            caption: 'Next peak',
+            value,
+            text: `Next peak: ${value}`,
+            style: 'deepseek-line',
         });
     }
 
     if (stale) {
         items.push({
             kind: 'item',
+            role: 'stale',
             text: '⚠️ Holiday list may be out of date',
-            style: 'deepseek-dim',
+            style: 'deepseek-line',
         });
         items.push({
             kind: 'action',
