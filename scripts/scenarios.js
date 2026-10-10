@@ -69,7 +69,7 @@ const scenarios = [
         workdays: [compensatoryWorkday('2026-09-19')],
     },
     {
-        title: 'Holiday that is also a compensatory workday',
+        title: 'Defensive: compensatory workday overrides a holiday (inconsistent data)',
         now: '2026-10-05T02:00:00Z',
         workdays: [compensatoryWorkday('2026-10-05')],
     },

@@ -230,9 +230,9 @@ check(
     '2026-10-10T01:00:00.000Z'
 );
 check(
-    'holiday takes precedence over compensatory day',
+    'compensatory day overrides a holiday (workday wins)',
     peakLabel(isPeak(utc('2026-10-07T02:00:00Z'), HOLIDAYS, [{name: 'x', date: '2026-10-07'}])),
-    'OFF-PEAK'
+    'PEAK'
 );
 
 // 17. Popup hierarchy and the "Peak hours today" line.
@@ -351,8 +351,9 @@ check(
     true
 );
 
-// 17d-bis. A compensatory workday that is also a holiday still shows the
-// workday line above the peak-hours line.
+// 17d-bis. A compensatory workday that is also a holiday: the workday wins
+// (this cannot happen with real data, but the override must be consistent), so
+// the holiday line is suppressed and the normal peak windows apply.
 const compHolidayMenu = buildMenuModel(
     utc('2026-10-05T02:00:00Z'),
     HOLIDAYS,
@@ -364,20 +365,27 @@ check(
     true
 );
 check(
-    'compensatory holiday: holiday line still shown',
+    'compensatory holiday: holiday line suppressed by the override',
     hasText(compHolidayMenu, '🎉 Chinese holiday: National Day'),
+    false
+);
+check(
+    'compensatory holiday: peak status wins over the holiday',
+    hasText(compHolidayMenu, '🔴 DeepSeek API: peak pricing'),
+    true
+);
+check(
+    'compensatory holiday: windows shown',
+    hasText(
+        compHolidayMenu,
+        `Peak hours today: ${todayWindows(utc('2026-10-05T02:00:00Z'))}`
+    ),
     true
 );
 check(
     'compensatory holiday: workday line above peak-hours line',
     itemTexts(compHolidayMenu).indexOf('🇨🇳 Chinese compensatory workday') <
-        itemTexts(compHolidayMenu).indexOf('No peak hours today'),
-    true
-);
-check(
-    'compensatory holiday: holiday line above peak-hours line',
-    itemTexts(compHolidayMenu).indexOf('🎉 Chinese holiday: National Day') <
-        itemTexts(compHolidayMenu).indexOf('No peak hours today'),
+        itemTexts(compHolidayMenu).findIndex(t => t.startsWith('Peak hours today:')),
     true
 );
 

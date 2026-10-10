@@ -44,6 +44,11 @@ workdays) in these UTC windows:
 - Chinese compensatory workday (调休, a weekend day that becomes a workday):
   **the normal peak windows apply**.
 
+In the official calendar a day is either a holiday or a workday, never both.
+Should the merged data still contain both for one date, the compensatory
+workday wins: it is the authoritative, single-day override from the fetched
+calendar, so the normal peak windows apply and the holiday line is suppressed.
+
 The UTC times are converted to the computer's local time in the menu.
 
 ## Structure
@@ -189,10 +194,11 @@ TZ=Europe/Prague node scripts/scenarios.js
 
 It covers a normal workday (before, during and after peak, and in the gap
 between the two windows), a Saturday and Sunday weekend, a Chinese holiday, a
-compensatory workday (a weekend that becomes a workday), a holiday that is also
-a compensatory workday, a Friday evening whose next peak is on Monday, an
-out-of-date holiday list with the **Refresh holidays** button, and a synthetic
-long holiday with no price change in sight.
+compensatory workday (a weekend that becomes a workday), a defensive case where
+a compensatory workday overrides an overlapping holiday in inconsistent data, a
+Friday evening whose next peak is on Monday, an out-of-date holiday list with
+the **Refresh holidays** button, and a synthetic long holiday with no price
+change in sight.
 
 The scenarios deliberately use the seed table in `pricing.js` (not the on-disk
 cache), so every run shows exactly the same layouts. Peak windows are shown in
