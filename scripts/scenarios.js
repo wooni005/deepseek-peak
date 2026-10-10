@@ -14,10 +14,20 @@
 // local time. Pin it for reproducible output, e.g.:
 //     TZ=Europe/Prague node scripts/scenarios.js
 //
-// Scenarios intentionally use the seed table in pricing.js (not the on-disk
+// Scenarios intentionally use the checked-in test fixture (not the on-disk
 // cache), so every run shows exactly the same layouts.
 
-import {CHINESE_HOLIDAYS, buildMenuModel} from '../pricing.js';
+import {readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {dirname, join} from 'node:path';
+
+import {buildMenuModel} from '../pricing.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const FIXTURE = JSON.parse(
+    readFileSync(join(here, '..', 'tests', 'fixtures', 'holidays.json'), 'utf8')
+);
+const FIXTURE_HOLIDAYS = FIXTURE.holidays;
 
 // A compensatory workday is a weekend day that the Chinese State Council turns
 // into a working day, so the normal peak windows apply on it.
@@ -79,7 +89,7 @@ const scenarios = [
     },
     {
         title: 'Out-of-date holiday list (warning + refresh button)',
-        now: '2026-10-14T02:00:00Z',
+        now: '2028-01-15T02:00:00Z',
     },
     {
         title: 'No transition in sight — synthetic 29-day holiday',
@@ -143,7 +153,7 @@ console.log('');
 
 for (const scenario of selected) {
     const now = new Date(scenario.now);
-    const holidays = scenario.holidays ?? CHINESE_HOLIDAYS;
+    const holidays = scenario.holidays ?? FIXTURE_HOLIDAYS;
     const workdays = scenario.workdays ?? [];
     const model = buildMenuModel(now, holidays, workdays);
 

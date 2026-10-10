@@ -5,8 +5,11 @@
 //
 // The script exits with code 0 if everything passes and 1 if a test fails.
 
+import {readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {dirname, join} from 'node:path';
+
 import {
-    CHINESE_HOLIDAYS,
     buildMenuModel,
     findHoliday,
     findWorkday,
@@ -14,11 +17,23 @@ import {
     formatWhen,
     getStatus,
     isPeak,
+    isStale,
     nextTransition,
-    parseCalendar,
 } from '../pricing.js';
 
-const HOLIDAYS = CHINESE_HOLIDAYS;
+import {parseCalendar} from '../holidays.js';
+
+// The extension no longer ships a hardcoded holiday table; the tests use the
+// same downloaded-style fixture data as scripts/scenarios.js.
+const fixturePath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    'fixtures',
+    'holidays.json'
+);
+const FIXTURE = JSON.parse(readFileSync(fixturePath, 'utf8'));
+
+const HOLIDAYS = FIXTURE.holidays;
+const WORKDAYS = FIXTURE.workdays;
 
 let passed = 0;
 let failed = 0;
@@ -183,7 +198,11 @@ console.log('\n15) getStatus: combined current status');
 const status = getStatus(utc('2026-10-14T02:00:00Z'), HOLIDAYS);
 check('status.peak = true', status.peak, true);
 check('status.holiday = null', status.holiday, null);
-check('status.stale = true (after last table date)', status.stale, true);
+check(
+    'status.stale = false (current year data is present)',
+    status.stale,
+    false
+);
 check(
     'status.nextTransition = 2026-10-14T04:00',
     status.nextTransition?.toISOString(),
@@ -423,8 +442,10 @@ check(
     true
 );
 
-// 17g. The Refresh holidays action and local time are preserved.
-const staleMenu = buildMenuModel(utc('2026-10-14T02:00:00Z'), HOLIDAYS);
+// 17g. The Refresh holidays action and local time are preserved. The button is
+// shown when the current year has no data (here 2028, which the fixture does
+// not cover).
+const staleMenu = buildMenuModel(utc('2028-01-15T02:00:00Z'), HOLIDAYS);
 check(
     'refresh button kept',
     staleMenu.items.some(
@@ -441,6 +462,92 @@ check(
 check(
     'no trailing separator',
     staleMenu.items.some(i => i.kind === 'separator'),
+    false
+);
+
+// 18. Staleness is about the current Chinese calendar year, not about the last
+// holiday date: valid current-year data clears the warning even in December.
+console.log('\n18) isStale reflects the current Chinese calendar year');
+check(
+    'current year covered → not stale',
+    isStale(utc('2026-12-15T02:00:00Z'), HOLIDAYS),
+    false
+);
+check(
+    'no data → stale',
+    isStale(utc('2026-10-14T02:00:00Z'), []),
+    true
+);
+check(
+    'missing next year (still current year) → not stale',
+    isStale(utc('2026-10-31T12:00:00Z'), HOLIDAYS),
+    false
+);
+check(
+    'year boundary: Dec 31 16:30 UTC is Jan 1 in China → stale when 2027 absent',
+    isStale(utc('2026-12-31T16:30:00Z'), [
+        {name: 'National Day', start: '2026-10-01', end: '2026-10-07'},
+    ]),
+    true
+);
+
+// 19. Fixture compensatory workdays (a weekend day that becomes a workday).
+console.log('\n19) Fixture compensatory workdays');
+check(
+    'Saturday 2026-10-10 with fixture workday = PEAK',
+    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    'PEAK'
+);
+check(
+    'Saturday 2026-10-10 without workdays = OFF-PEAK',
+    peakLabel(isPeak(utc('2026-10-10T02:00:00Z'), HOLIDAYS)),
+    'OFF-PEAK'
+);
+
+// 20. Year-boundary dates around December / January.
+console.log('\n20) December / January boundary');
+check(
+    '2026-12-31 (Thursday) during window = PEAK',
+    peakLabel(isPeak(utc('2026-12-31T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    'PEAK'
+);
+check(
+    '2027-01-01 is a holiday = OFF-PEAK',
+    peakLabel(isPeak(utc('2027-01-01T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    'OFF-PEAK'
+);
+check(
+    '2027-01-09 compensatory Saturday = PEAK',
+    peakLabel(isPeak(utc('2027-01-09T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    'PEAK'
+);
+check(
+    '2027-01-04 (Monday, after the holiday) = PEAK',
+    peakLabel(isPeak(utc('2027-01-04T02:00:00Z'), HOLIDAYS, WORKDAYS)),
+    'PEAK'
+);
+
+// 21. China-time helpers used for the fetch schedule.
+console.log('\n21) China timezone year/month handling');
+check('2026-10-31T20:00Z → China Nov 1', isStale(utc('2026-10-31T20:00:00Z'), HOLIDAYS), false);
+
+// 22. Debug option: force the refresh action visible without a stale warning.
+console.log('\n22) alwaysShowRefresh debug option');
+const forced = buildMenuModel(
+    utc('2026-10-14T02:00:00Z'),
+    HOLIDAYS,
+    [],
+    {alwaysShowRefresh: true}
+);
+check(
+    'refresh action shown while data is current',
+    forced.items.some(i => i.kind === 'action' && i.action === 'refresh'),
+    true
+);
+check('still not stale', forced.stale, false);
+check(
+    'no stale warning alongside the forced button',
+    itemTexts(forced).some(t => t.includes('out of date')),
     false
 );
 

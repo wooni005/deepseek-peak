@@ -10,20 +10,23 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {
-    CHINESE_HOLIDAYS,
     buildMenuModel,
-    holidayUrl,
-    isStale,
-    lastHolidayEnd,
-    mergeHolidays,
-    mergeWorkdays,
-    parseCalendar,
+    chinaYear,
 } from './pricing.js';
 
 import {
-    ensureDirectoryAsync,
+    holidayUrl,
+    parseCache,
+    parseCalendar,
+    recordAttempt,
+    recordSuccess,
+    serializeCache,
+    yearsToFetch,
+} from './holidays.js';
+
+import {
     readFileBytesAsync,
-    writeFileBytesAsync,
+    writeFileAtomicAsync,
 } from './gio-async.js';
 
 const CACHE_PATH = GLib.build_filenamev([
@@ -31,6 +34,16 @@ const CACHE_PATH = GLib.build_filenamev([
     'deepseek-peak',
     'holidays.json',
 ]);
+
+// How long a single HTTP request may take before it is aborted.
+const REQUEST_TIMEOUT_SECONDS = 30;
+
+const HTTP_OK = 200;
+
+// DEBUG: when true, the "Refresh holidays" button is always shown, even when
+// the holiday data is up to date, so the manual refresh path can be tested
+// without waiting for stale data. Set back to false before releasing.
+const DEBUG_ALWAYS_SHOW_REFRESH = true;
 
 // Maps a menu entry role to the item-level CSS class that controls its spacing
 // in the popup. Named roles come from buildMenuModel(); unknown roles fall back
@@ -49,12 +62,14 @@ class DeepSeekIndicator extends PanelMenu.Button {
     _init() {
         super._init(0.0, 'DeepSeek Peak Pricing');
 
-        this._holidays = [...CHINESE_HOLIDAYS];
+        this._holidays = [];
         this._workdays = [];
+        this._years = {};
+        this._cacheLoaded = false;
         this._notifiedStale = false;
         this._fetching = false;
-
-        this._loadCachedHolidays();
+        this._session = null;
+        this._destroyed = false;
 
         this._label = new St.Label({
             text: '⚪ ...',
@@ -72,103 +87,163 @@ class DeepSeekIndicator extends PanelMenu.Button {
             }
         );
 
+        // Load the cache asynchronously: the popup renders immediately with the
+        // (empty) default and updates again as soon as the cache is available.
+        this._loadCachedHolidays();
+
         this._update();
     }
 
     destroy() {
+        this._destroyed = true;
+
         if (this._timerId) {
             GLib.source_remove(this._timerId);
             this._timerId = null;
         }
 
+        // Abort any in-flight download; the callbacks notice that `_session` no
+        // longer matches and stop without touching the destroyed extension.
+        if (this._session) {
+            const session = this._session;
+            this._session = null;
+            this._fetching = false;
+            session.abort();
+        }
+
         super.destroy();
     }
 
+    _cacheState() {
+        return {
+            holidays: this._holidays,
+            workdays: this._workdays,
+            years: this._years,
+        };
+    }
+
     _update() {
+        if (this._destroyed)
+            return;
+
         const now = new Date();
-        const model = buildMenuModel(now, this._holidays, this._workdays);
+        const model = buildMenuModel(now, this._holidays, this._workdays, {
+            alwaysShowRefresh: DEBUG_ALWAYS_SHOW_REFRESH,
+        });
 
         this._label.text = model.panelLabel;
 
         if (model.stale && !this._notifiedStale) {
             this._notifiedStale = true;
             this._notify(
-                'Holiday list has expired. Open the menu to refresh.'
+                'Holiday list may be out of date. Open the menu to refresh.'
             );
+        } else if (!model.stale) {
+            this._notifiedStale = false;
         }
 
         this._renderMenu(model);
+        this._maybeAutoRefresh(now);
+    }
+
+    // Starts a (throttled) background refresh when the cache is loaded. Called
+    // on every update tick, so a future year that is not published yet is
+    // retried on later daily checks while the extension keeps running.
+    _maybeAutoRefresh(now = new Date()) {
+        if (!this._cacheLoaded || this._fetching)
+            return;
+
+        this._fetchHolidays({manual: false, now});
     }
 
     async _loadCachedHolidays() {
         const file = Gio.File.new_for_path(CACHE_PATH);
-        let contents;
+        let state = null;
 
         try {
-            contents = await readFileBytesAsync(file);
+            const contents = await readFileBytesAsync(file);
+            state = parseCache(new TextDecoder().decode(contents));
         } catch (e) {
             // A missing cache file is expected on the first run.
             if (!(e instanceof GLib.Error &&
                     e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)))
                 logError(e, 'deepseek-peak: failed to read cache');
+        }
 
+        // The extension may have been disabled (and the object destroyed) while
+        // the cache was being read.
+        if (this._destroyed)
+            return;
+
+        if (state) {
+            this._holidays = state.holidays;
+            this._workdays = state.workdays;
+            this._years = state.years;
+        }
+
+        this._cacheLoaded = true;
+        this._update();
+    }
+
+    _fetchHolidays({manual = false, now = new Date()} = {}) {
+        if (this._fetching) {
+            if (manual)
+                this._notify('Holiday refresh already in progress.');
             return;
         }
 
-        try {
-            const data = JSON.parse(new TextDecoder().decode(contents));
+        const years = yearsToFetch(now, this._cacheState(), {manual});
 
-            if (Array.isArray(data.holidays))
-                this._holidays = mergeHolidays(this._holidays, data.holidays);
-
-            if (Array.isArray(data.workdays))
-                this._workdays = mergeWorkdays(this._workdays, data.workdays);
-
-            this._update();
-        } catch (e) {
-            logError(e, 'deepseek-peak: failed to parse cache');
-        }
-    }
-
-    async _saveCachedHolidays() {
-        const file = Gio.File.new_for_path(CACHE_PATH);
-        const bytes = new TextEncoder().encode(
-            JSON.stringify({
-                holidays: this._holidays,
-                workdays: this._workdays,
-            }, null, 2)
-        );
-
-        try {
-            await ensureDirectoryAsync(file.get_parent());
-            await writeFileBytesAsync(file, bytes);
-        } catch (e) {
-            logError(e, 'deepseek-peak: failed to write cache');
-        }
-    }
-
-    _fetchHolidays() {
-        if (this._fetching)
+        if (years.length === 0) {
+            if (manual)
+                this._notify('Holidays are already up to date.');
             return;
+        }
 
         this._fetching = true;
 
-        const nowYear = new Date().getUTCFullYear();
-        const lastYear = Number(lastHolidayEnd(this._holidays).slice(0, 4)) || nowYear;
-
-        const years = [];
-        for (let year = lastYear; year <= nowYear + 1; year++)
-            years.push(year);
-
         const session = new Soup.Session();
+        session.timeout = REQUEST_TIMEOUT_SECONDS;
         this._session = session;
 
-        const found = [];
-        const foundWorkdays = [];
+        const currentChinaYear = chinaYear(now);
         let pending = years.length;
-        let failed = false;
+        let metadataChanged = false;
+        let currentYearFailed = false;
+        let currentYearUpdated = false;
+        let unavailable = 0;
+        let updatedDays = 0;
 
-        years.forEach(year => {
+        const finish = () => {
+            // The extension was disabled while the request was in flight.
+            if (this._session !== session)
+                return;
+
+            this._fetching = false;
+            this._session = null;
+            session.abort();
+
+            // Persist even when only the per-year refresh timestamps changed, so
+            // an unavailable future year is not re-fetched on every startup.
+            if (metadataChanged)
+                this._saveCachedHolidays();
+
+            this._update();
+
+            if (!manual)
+                return;
+
+            if (currentYearUpdated)
+                this._notify(`Holidays updated (${updatedDays} days).`);
+            else if (currentYearFailed)
+                this._notify('Failed to refresh holidays.');
+            else if (unavailable > 0)
+                this._notify('No new holidays available yet.');
+            else
+                this._notify('Holidays are already up to date.');
+        };
+
+        for (const year of years) {
             const message = Soup.Message.new('GET', holidayUrl(year));
 
             session.send_and_read_async(
@@ -176,51 +251,92 @@ class DeepSeekIndicator extends PanelMenu.Button {
                 GLib.PRIORITY_DEFAULT,
                 null,
                 (sess, result) => {
+                    if (this._session !== session)
+                        return;
+
+                    let parsed = null;
+                    let outcome = 'failed';
+
                     try {
                         const bytes = sess.send_and_read_finish(result);
-                        const text = new TextDecoder().decode(bytes.get_data());
-                        const parsed = parseCalendar(JSON.parse(text));
 
-                        found.push(...parsed.holidays);
-                        foundWorkdays.push(...parsed.workdays);
+                        if (message.get_status() !== HTTP_OK)
+                            throw new Error(`HTTP ${message.get_status()}`);
+
+                        const data = JSON.parse(
+                            new TextDecoder().decode(bytes.get_data())
+                        );
+
+                        parsed = parseCalendar(data, year);
+
+                        if (!parsed.valid)
+                            throw new Error('invalid calendar data');
+
+                        outcome = parsed.usable ? 'success' : 'unavailable';
                     } catch (e) {
-                        failed = true;
+                        outcome = 'failed';
                         logError(e, `deepseek-peak: failed to fetch ${year}`);
                     }
 
+                    if (outcome === 'success') {
+                        const next = recordSuccess(
+                            this._cacheState(),
+                            year,
+                            parsed
+                        );
+
+                        this._holidays = next.holidays;
+                        this._workdays = next.workdays;
+                        this._years = next.years;
+                        updatedDays += parsed.dayCount;
+                        metadataChanged = true;
+
+                        if (year === currentChinaYear) {
+                            currentYearUpdated = true;
+                            this._notifiedStale = false;
+                        }
+                    } else if (outcome === 'unavailable' &&
+                            year > currentChinaYear) {
+                        // A structurally valid but empty response for a future
+                        // year: not announced yet. Never overwrite cached data
+                        // and never surface an error for it.
+                        const next = recordAttempt(this._cacheState(), year);
+
+                        this._years = next.years;
+                        metadataChanged = true;
+                        unavailable += 1;
+                    } else {
+                        // A hard failure, or an empty response for the current
+                        // year (which is not usable data): keep any cached data
+                        // and stop retrying until the next daily check.
+                        const next = recordAttempt(this._cacheState(), year);
+
+                        this._years = next.years;
+                        metadataChanged = true;
+
+                        if (year === currentChinaYear)
+                            currentYearFailed = true;
+                    }
+
                     if (--pending === 0)
-                        this._onFetched(found, foundWorkdays, failed);
+                        finish();
                 }
             );
-        });
+        }
     }
 
-    _onFetched(found, foundWorkdays, failed) {
-        this._fetching = false;
-        this._session = null;
+    async _saveCachedHolidays() {
+        const file = Gio.File.new_for_path(CACHE_PATH);
+        const bytes = new TextEncoder().encode(
+            serializeCache(this._cacheState())
+        );
 
-        if (found.length > 0)
-            this._holidays = mergeHolidays(this._holidays, found);
-
-        if (foundWorkdays.length > 0)
-            this._workdays = mergeWorkdays(this._workdays, foundWorkdays);
-
-        if (found.length > 0 || foundWorkdays.length > 0)
-            this._saveCachedHolidays();
-
-        if (isStale(new Date(), this._holidays)) {
-            this._notifiedStale = true;
-            this._notify(
-                failed
-                    ? 'Failed to fetch holidays.'
-                    : 'No new holidays available yet.'
-            );
-        } else {
-            this._notifiedStale = false;
-            this._notify(`Holidays updated (${found.length} days).`);
+        try {
+            // writeFileAtomicAsync creates the parent directory when needed.
+            await writeFileAtomicAsync(file, bytes);
+        } catch (e) {
+            logError(e, 'deepseek-peak: failed to write cache');
         }
-
-        this._update();
     }
 
     _notify(body) {
@@ -314,7 +430,7 @@ class DeepSeekIndicator extends PanelMenu.Button {
         item.add_style_class_name('deepseek-button');
         item.label.add_style_class_name('deepseek-button-label');
         item.label.x_expand = true;
-        item.connect('activate', () => this._fetchHolidays());
+        item.connect('activate', () => this._fetchHolidays({manual: true}));
 
         return item;
     }

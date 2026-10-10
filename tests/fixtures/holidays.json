@@ -1,0 +1,22 @@
+{
+  "holidays": [
+    {"name": "New Year", "start": "2025-01-01", "end": "2025-01-01"},
+    {"name": "Spring Festival", "start": "2025-01-28", "end": "2025-02-04"},
+    {"name": "Qingming", "start": "2025-04-04", "end": "2025-04-06"},
+    {"name": "Labour Day", "start": "2025-05-01", "end": "2025-05-05"},
+    {"name": "Dragon Boat", "start": "2025-05-31", "end": "2025-06-02"},
+    {"name": "National Day + Mid-Autumn", "start": "2025-10-01", "end": "2025-10-08"},
+    {"name": "New Year", "start": "2026-01-01", "end": "2026-01-03"},
+    {"name": "Spring Festival", "start": "2026-02-15", "end": "2026-02-23"},
+    {"name": "Qingming", "start": "2026-04-04", "end": "2026-04-06"},
+    {"name": "Labour Day", "start": "2026-05-01", "end": "2026-05-05"},
+    {"name": "Dragon Boat", "start": "2026-06-19", "end": "2026-06-21"},
+    {"name": "Mid-Autumn", "start": "2026-09-25", "end": "2026-09-27"},
+    {"name": "National Day", "start": "2026-10-01", "end": "2026-10-07"},
+    {"name": "New Year", "start": "2027-01-01", "end": "2027-01-03"}
+  ],
+  "workdays": [
+    {"name": "Compensatory workday", "date": "2026-10-10"},
+    {"name": "Compensatory workday", "date": "2027-01-09"}
+  ]
+}

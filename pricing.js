@@ -10,40 +10,22 @@ export const PEAK_PERIODS = [
     {start: 6, end: 10},
 ];
 
-// Official Chinese public holidays (State Council, days off), as UTC dates.
-// Source: https://github.com/NateScarlet/holiday-cn (based on gov.cn).
-// Update this yearly as soon as the calendar for the next year is published.
-export const CHINESE_HOLIDAYS = [
-    {name: 'New Year', start: '2025-01-01', end: '2025-01-01'},
-    {name: 'Spring Festival', start: '2025-01-28', end: '2025-02-04'},
-    {name: 'Qingming', start: '2025-04-04', end: '2025-04-06'},
-    {name: 'Labour Day', start: '2025-05-01', end: '2025-05-05'},
-    {name: 'Dragon Boat', start: '2025-05-31', end: '2025-06-02'},
-    {name: 'National Day + Mid-Autumn', start: '2025-10-01', end: '2025-10-08'},
-    {name: 'New Year', start: '2026-01-01', end: '2026-01-03'},
-    {name: 'Spring Festival', start: '2026-02-15', end: '2026-02-23'},
-    {name: 'Qingming', start: '2026-04-04', end: '2026-04-06'},
-    {name: 'Labour Day', start: '2026-05-01', end: '2026-05-05'},
-    {name: 'Dragon Boat', start: '2026-06-19', end: '2026-06-21'},
-    {name: 'Mid-Autumn', start: '2026-09-25', end: '2026-09-27'},
-    {name: 'National Day', start: '2026-10-01', end: '2026-10-07'},
-];
-
-export function holidayUrl(year) {
-    return `https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/${year}.json`;
-}
+// The extension no longer ships a hardcoded holiday table: the downloaded
+// calendar (see holidays.js) is the single source of truth. Every function
+// below therefore treats an empty `holidays`/`workdays` list as valid input and
+// simply falls back to the plain Mon-Fri / weekend rules.
 
 function utcDateKey(date) {
     return date.toISOString().slice(0, 10);
 }
 
-export function findHoliday(now, holidays = CHINESE_HOLIDAYS) {
+export function findHoliday(now, holidays = []) {
     const date = utcDateKey(now);
 
     return holidays.find(h => date >= h.start && date <= h.end) ?? null;
 }
 
-export function holidayName(now, holidays = CHINESE_HOLIDAYS) {
+export function holidayName(now, holidays = []) {
     return findHoliday(now, holidays)?.name ?? null;
 }
 
@@ -60,7 +42,7 @@ export function isWorkday(now, workdays = []) {
     return (day >= 1 && day <= 5) || findWorkday(now, workdays) !== null;
 }
 
-export function isPeak(now, holidays = CHINESE_HOLIDAYS, workdays = []) {
+export function isPeak(now, holidays = [], workdays = []) {
     // A Chinese compensatory workday (调休) is an authoritative, single-day
     // override: it wins over a holiday range, so the normal peak windows apply.
     const compensatory = findWorkday(now, workdays) !== null;
@@ -80,7 +62,7 @@ export function isPeak(now, holidays = CHINESE_HOLIDAYS, workdays = []) {
     );
 }
 
-export function nextTransition(now, holidays = CHINESE_HOLIDAYS, workdays = []) {
+export function nextTransition(now, holidays = [], workdays = []) {
     const current = isPeak(now, holidays, workdays);
     const t = new Date(now);
 
@@ -105,6 +87,28 @@ function localDateKey(date, timeZone) {
         month: '2-digit',
         day: '2-digit',
     }).format(date);
+}
+
+// The Chinese official calendar is published per calendar year in China time
+// (UTC+8), so "the current year" and the November switch to the next year are
+// evaluated in that zone rather than in UTC.
+export const CHINA_TIME_ZONE = 'Asia/Shanghai';
+
+export function chinaDateKey(date) {
+    return localDateKey(date, CHINA_TIME_ZONE);
+}
+
+export function chinaYear(date = new Date()) {
+    return Number(chinaDateKey(date).slice(0, 4));
+}
+
+export function chinaMonth(date = new Date()) {
+    return Number(chinaDateKey(date).slice(5, 7));
+}
+
+// Extracts the year from a `YYYY-MM-DD` calendar date.
+export function yearOf(dateKey) {
+    return typeof dateKey === 'string' ? Number(dateKey.slice(0, 4)) : NaN;
 }
 
 // The popup must always be readable in English, independent of the system
@@ -154,17 +158,23 @@ export function formatHolidayEnd(end, timeZone = 'UTC') {
     });
 }
 
-export function lastHolidayEnd(holidays = CHINESE_HOLIDAYS) {
+export function lastHolidayEnd(holidays = []) {
     return holidays.reduce(
         (max, h) => (h.end > max ? h.end : max),
         ''
     );
 }
 
-export function isStale(now, holidays = CHINESE_HOLIDAYS) {
-    const last = lastHolidayEnd(holidays);
+// The list is "stale" when the current Chinese calendar year has no downloaded
+// data at all: that is the only case in which the peak calculation has to fall
+// back to the plain Mon-Fri / weekend rules. Missing data for a future year
+// (e.g. next year's announcement has not been published yet) is not stale.
+export function isStale(now, holidays = []) {
+    const year = chinaYear(now);
 
-    return last !== '' && utcDateKey(now) > last;
+    return !holidays.some(h =>
+        yearOf(h.start) === year || yearOf(h.end) === year
+    );
 }
 
 export function mergeHolidays(base, extra) {
@@ -179,34 +189,10 @@ export function mergeWorkdays(base, extra) {
     return [...base, ...extra.filter(w => !seen.has(w.date))];
 }
 
-// Parses a holiday-cn yearly file. Returns both the days off (isOffDay true)
-// and the Chinese compensatory workdays (isOffDay false, e.g. a weekend day
-// that becomes a workday).
-export function parseCalendar(data) {
-    const days = Array.isArray(data?.days) ? data.days : [];
-
-    const holidays = days
-        .filter(day => day.isOffDay)
-        .map(day => ({
-            name: day.name,
-            start: day.date,
-            end: day.date,
-        }));
-
-    const workdays = days
-        .filter(day => !day.isOffDay)
-        .map(day => ({
-            name: day.name,
-            date: day.date,
-        }));
-
-    return {holidays, workdays};
-}
-
 // Determines the full current status in one call: peak/off-peak, the active
 // holiday, a possible compensatory workday, whether the holiday list is stale,
 // and when the next price transition is.
-export function getStatus(now = new Date(), holidays = CHINESE_HOLIDAYS, workdays = []) {
+export function getStatus(now = new Date(), holidays = [], workdays = []) {
     const workday = findWorkday(now, workdays);
     // A compensatory workday overrides a holiday range, so a holiday only
     // applies when no compensatory workday is active.
@@ -235,7 +221,10 @@ export function getStatus(now = new Date(), holidays = CHINESE_HOLIDAYS, workday
 // `style` is an optional space-separated list of CSS classes that extension.js
 // applies to the item label (e.g. 'deepseek-status deepseek-peak' or
 // 'deepseek-line'); scripts/status.js and the tests ignore it.
-export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, workdays = []) {
+//
+// `options.alwaysShowRefresh` (debug) keeps the Refresh holidays action in the
+// model even when the list is not stale.
+export function buildMenuModel(now = new Date(), holidays = [], workdays = [], options = {}) {
     const peak = isPeak(now, holidays, workdays);
     const workday = findWorkday(now, workdays);
     // A compensatory workday overrides a holiday range, so a holiday only
@@ -356,6 +345,13 @@ export function buildMenuModel(now = new Date(), holidays = CHINESE_HOLIDAYS, wo
             text: '⚠️ Holiday list may be out of date',
             style: 'deepseek-line',
         });
+    }
+
+    // The refresh action normally only accompanies the stale warning. The
+    // `options.alwaysShowRefresh` debug escape hatch keeps the button visible
+    // even when the data is up to date, so the manual refresh path can be
+    // tested without waiting for staleness.
+    if (stale || options.alwaysShowRefresh) {
         items.push({
             kind: 'action',
             action: 'refresh',

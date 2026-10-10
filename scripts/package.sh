@@ -17,7 +17,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 METADATA="$PROJECT_DIR/metadata.json"
 
 # Files that ship with the extension (order does not matter).
-RUNTIME_FILES=(extension.js pricing.js gio-async.js metadata.json stylesheet.css)
+RUNTIME_FILES=(extension.js pricing.js holidays.js gio-async.js metadata.json stylesheet.css)
 
 read_metadata() {
     local key="$1"
@@ -73,6 +73,7 @@ build_with_pack() {
     gnome-extensions pack --force --quiet \
         --out-dir="$DIST_DIR" \
         --extra-source=pricing.js \
+        --extra-source=holidays.js \
         --extra-source=gio-async.js \
         "$SRC"
 }
@@ -111,7 +112,7 @@ list_archive() {
     unzip -Z1 "$OUT"
 }
 
-for required in metadata.json extension.js pricing.js gio-async.js; do
+for required in metadata.json extension.js pricing.js holidays.js gio-async.js; do
     if ! list_archive | grep -qx "$required"; then
         echo "error: archive is missing top-level file: $required" >&2
         exit 1

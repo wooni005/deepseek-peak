@@ -45,6 +45,7 @@ mkdir -p "$INSTALL_DIR"
 
 cp "$PROJECT_DIR/extension.js" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/pricing.js" "$INSTALL_DIR/"
+cp "$PROJECT_DIR/holidays.js" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/gio-async.js" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/metadata.json" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/stylesheet.css" "$INSTALL_DIR/"

@@ -40,6 +40,41 @@ export function writeFileBytesAsync(file, bytes) {
     });
 }
 
+export function moveFileAsync(file, destination) {
+    return new Promise((resolve, reject) => {
+        file.move_async(
+            destination,
+            Gio.FileCopyFlags.OVERWRITE,
+            GLib.PRIORITY_DEFAULT,
+            null,
+            null,
+            (source, result) => {
+                try {
+                    source.move_finish(result);
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            }
+        );
+    });
+}
+
+// Writes `bytes` to a temporary file next to `file` and then renames it over
+// the destination, so a reader (or a crash) never sees a half-written cache.
+export async function writeFileAtomicAsync(file, bytes) {
+    const parent = file.get_parent();
+
+    if (parent)
+        await ensureDirectoryAsync(parent);
+
+    const directory = parent ?? file;
+    const temp = directory.get_child(`${file.get_basename()}.tmp`);
+
+    await writeFileBytesAsync(temp, bytes);
+    await moveFileAsync(temp, file);
+}
+
 export function makeDirectoryAsync(dir) {
     return new Promise((resolve, reject) => {
         dir.make_directory_async(
