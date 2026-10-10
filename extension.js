@@ -41,7 +41,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
         this._workdays = [];
         this._notifiedStale = false;
         this._fetching = false;
-        this._destroyed = false;
 
         this._loadCachedHolidays();
 
@@ -94,9 +93,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
 
             return;
         }
-
-        if (this._destroyed)
-            return;
 
         try {
             const data = JSON.parse(new TextDecoder().decode(contents));
@@ -231,17 +227,6 @@ class DeepSeekIndicator extends PanelMenu.Button {
             }
         }
     }
-
-    destroy() {
-        this._destroyed = true;
-
-        if (this._timerId) {
-            GLib.Source.remove(this._timerId);
-            this._timerId = null;
-        }
-
-        super.destroy();
-    }
 });
 
 export default class DeepSeekPeakExtension extends Extension {
@@ -255,7 +240,6 @@ export default class DeepSeekPeakExtension extends Extension {
     }
 
     disable() {
-        this._indicator?.destroy();
         this._indicator = null;
     }
 }
